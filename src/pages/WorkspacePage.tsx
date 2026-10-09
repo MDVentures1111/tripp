@@ -9,27 +9,27 @@ type Organization = { id: string; name: string; slug: string; created_at: string
 
 export const WorkspacePage: React.FC = () => {
   const { user, loading: authLoading, signOut } = useAuth();
-  const [loading, setLoading] = useState(true);
+  
+  // Explicit Authorization State Machine
+  const [authz, setAuthz] = useState<'checking' | 'authorized' | 'denied' | 'error'>('checking');
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [dbError, setDbError] = useState<string | null>(null);
-  const [noAccess, setNoAccess] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
-    const fetchOrgData = async () => {
-      if (!user) {
-        setLoading(false);
-        return;
-      }
+    // Reset state machine immediately when the authenticated user changes or app mounts
+    setAuthz('checking');
+    setMemberships([]);
+    setOrganizations([]);
 
-      setLoading(true);
-      setDbError(null);
-      setNoAccess(false);
+    if (authLoading || !user) {
+      return;
+    }
 
+    const verifyAccess = async () => {
       try {
-        // 1. Fetch memberships for this user
+        // 1. Verify membership exists for this specific user
         const { data: mems, error: memErr } = await supabase
           .from('organization_memberships')
           .select('*')
@@ -39,15 +39,15 @@ export const WorkspacePage: React.FC = () => {
         
         const validMemberships = mems || [];
 
+        // Fail closed: no memberships means unauthorized
         if (validMemberships.length === 0) {
-          setNoAccess(true);
-          setLoading(false);
+          if (!cancelled) setAuthz('denied');
           return;
         }
 
         setMemberships(validMemberships);
 
-        // 2. Fetch organizations they belong to
+        // 2. Resolve organization records corresponding to verified memberships
         const orgIds = validMemberships.map(m => m.organization_id);
         
         const { data: orgs, error: orgErr } = await supabase
@@ -57,26 +57,29 @@ export const WorkspacePage: React.FC = () => {
 
         if (orgErr) throw orgErr;
         
-        if (!cancelled) setOrganizations(orgs || []);
+        setOrganizations(orgs || []);
+        
+        if (!cancelled) setAuthz('authorized');
       } catch (err: any) {
         if (!cancelled) {
-          setDbError(err.message || 'Failed to load organization data.');
+          console.error('Organization verification failed:', err.message);
+          setAuthz('error');
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     };
 
-    fetchOrgData();
-    return () => { cancelled = true; };
-  }, [user]);
+    verifyAccess();
 
-  if (authLoading || loading) {
+    // Cancel pending requests on unmount or user change to prevent stale updates
+    return () => { cancelled = true; };
+  }, [user, authLoading]);
+
+  if (authLoading || authz === 'checking') {
     return (
       <div className="page-shell">
         <div className="loading-state">
           <div className="spinner" />
-          <p>Loading workspace…</p>
+          <p>Verifying secure access…</p>
         </div>
       </div>
     );
@@ -90,9 +93,7 @@ export const WorkspacePage: React.FC = () => {
           <h2>TRIPP Intelligence — Workspace</h2>
         </div>
         <div className="shell-actions">
-          <span className="user-badge">
-            {user?.email}
-          </span>
+          <span className="user-badge">{user?.email}</span>
           <button onClick={() => signOut()} className="btn-secondary">
             Sign Out
           </button>
@@ -100,14 +101,21 @@ export const WorkspacePage: React.FC = () => {
       </header>
 
       <main className="shell-main">
-        {dbError && <div className="alert alert-error">{dbError}</div>}
-
-        {noAccess ? (
+        {authz === 'error' && (
           <section className="card">
-            <h3>Authorization Required</h3>
-            <p className="muted">You do not have an active organization membership. Please contact your administrator to be granted access.</p>
+            <h3>System Error</h3>
+            <p className="muted">Unable to retrieve organization data due to a connection failure.</p>
           </section>
-        ) : (
+        )}
+
+        {authz === 'denied' && (
+          <section className="card">
+            <h3>Access Denied</h3>
+            <p className="muted">Your account does not have an active organization membership. Please contact your administrator.</p>
+          </section>
+        )}
+
+        {authz === 'authorized' && (
           <>
             <section className="card">
               <h3>Authentication Status</h3>

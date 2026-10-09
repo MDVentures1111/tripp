@@ -10,7 +10,6 @@ interface AuthState {
   loading: boolean;
   apiError: string | null;
   signIn: (email: string, password: string) => Promise<boolean>;
-  signUp: (email: string, password: string) => Promise<boolean>;
   signOut: () => Promise<void>;
 }
 
@@ -20,7 +19,6 @@ const AuthContext = createContext<AuthState>({
   loading: true,
   apiError: null,
   signIn: async () => false,
-  signUp: async () => false,
   signOut: async () => {},
 });
 
@@ -41,18 +39,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Initialize session on mount (survives refresh)
   useEffect(() => {
-    const initSession = async () => {
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        updateSession(data.session);
-      } catch (err: any) {
-        console.error('Auth initialization failed:', err.message);
-        setApiError(err.message || 'Failed to initialize authentication.');
-        setLoading(false);
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        console.error('Auth initialization failed:', error.message);
+        setApiError(error.message);
       }
-    };
-    initSession();
+      updateSession(data.session);
+    });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
       updateSession(newSession);
@@ -79,38 +72,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const signUp = async (email: string, password: string): Promise<boolean> => {
-    setLoading(true);
-    setApiError(null);
-    try {
-      const { error } = await supabase.auth.signUp({ email, password });
-      if (error) {
-        setApiError(error.message);
-        setLoading(false);
-        return false;
-      }
-      return true;
-    } catch (err: any) {
-      setApiError(err.message || 'Unexpected error during sign up.');
-      setLoading(false);
-      return false;
-    }
-  };
-
   const signOut = async () => {
-    setLoading(true);
     try {
-      await supabase.auth.signOut();
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
       updateSession(null);
     } catch (err: any) {
       setApiError(err.message || 'Failed to sign out.');
-    } finally {
       setLoading(false);
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, apiError, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, apiError, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
