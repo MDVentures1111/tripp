@@ -2,44 +2,36 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
+import { Google, Loader2 } from 'lucide-react';
 
 export const AuthPage: React.FC = () => {
-  const { user, loading, apiError, signIn, signOut } = useAuth();
+  const { user, loading, apiError, signIn, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [resultMsg, setResultMsg] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Redirect to dashboard if already authenticated
   if (user) {
-    return (
-      <div className="page-shell">
-        <div className="card">
-          <h2>Already Signed In</h2>
-          <p>User: {user.email}</p>
-          <button onClick={() => { signOut(); navigate('/auth'); }}>
-            Sign Out
-          </button>
-        </div>
-      </div>
-    );
+    return <Navigate to="/" replace />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
-    setResultMsg(null);
-
+    setIsSubmitting(true);
+    
     const success = await signIn(email, password);
-
     if (success) {
-      setResultMsg('Login successful. Redirecting…');
       navigate('/', { replace: true });
-    } else {
-      setSubmitting(false);
     }
+    setIsSubmitting(false);
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsSubmitting(true);
+    await signInWithGoogle();
   };
 
   return (
@@ -48,34 +40,68 @@ export const AuthPage: React.FC = () => {
         <header className="auth-header">
           <img src="/logo-icon.png" alt="TRIPP Logo" className="auth-logo" />
           <h1>TRIPP Intelligence</h1>
+          <p className="muted">Sign in to manage your tenant intelligence.</p>
         </header>
 
-        <form onSubmit={handleSubmit} className="auth-form">
-          <input
-            type="email"
-            placeholder="Email address"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete="current-password"
-          />
-
-          <button type="submit" disabled={loading || submitting}>
-            {submitting ? 'Processing…' : 'Sign In'}
+        <div className="auth-forms-container">
+          <button 
+            type="button" 
+            onClick={handleGoogleSignIn}
+            disabled={loading || isSubmitting}
+            className="btn-google"
+          >
+            {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : <Google size={20} />}
+            Continue with Google
           </button>
-        </form>
 
-        {resultMsg && <p className="success-text">{resultMsg}</p>}
-        {apiError && <p className="error-text">{apiError}</p>}
+          <div className="divider">
+            <span>or continue with email</span>
+          </div>
+
+          <form onSubmit={handleSubmit} className="auth-form">
+            <div className="input-group">
+              <label htmlFor="email">Email address</label>
+              <input
+                id="email"
+                type="email"
+                placeholder="name@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+            </div>
+            
+            <div className="input-group">
+              <div className="input-label-row">
+                <label htmlFor="password">Password</label>
+                <button type="button" className="link-button text-sm">Forgot password?</button>
+              </div>
+              <input
+                id="password"
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </div>
+
+            <button type="submit" disabled={loading || isSubmitting} className="btn-primary">
+              {isSubmitting ? 'Signing in…' : 'Sign In'}
+            </button>
+          </form>
+        </div>
+
+        {apiError && <Alert variant="error">{apiError}</Alert>}
       </div>
     </div>
   );
 };
+
+const Alert = ({ children, variant }: { children: React.ReactNode; variant: 'error' | 'success' }) => (
+  <div className={`alert ${variant === 'error' ? 'alert-error' : 'alert-success'}`}>
+    {children}
+  </div>
+);

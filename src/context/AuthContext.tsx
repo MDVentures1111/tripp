@@ -10,6 +10,7 @@ interface AuthState {
   loading: boolean;
   apiError: string | null;
   signIn: (email: string, password: string) => Promise<boolean>;
+  signInWithGoogle: () => Promise<boolean>;
   signOut: () => Promise<void>;
 }
 
@@ -19,6 +20,7 @@ const AuthContext = createContext<AuthState>({
   loading: true,
   apiError: null,
   signIn: async () => false,
+  signInWithGoogle: async () => false,
   signOut: async () => {},
 });
 
@@ -72,6 +74,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const signInWithGoogle = async (): Promise<boolean> => {
+    setLoading(true);
+    setApiError(null);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+      });
+      if (error) {
+        setApiError(error.message);
+        setLoading(false);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      setApiError(err.message || 'Unexpected error during Google sign-in.');
+      setLoading(false);
+      return false;
+    }
+  };
+
   const signOut = async () => {
     try {
       const { error } = await supabase.auth.signOut();
@@ -84,7 +106,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, apiError, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, apiError, signIn, signInWithGoogle, signOut }}>
       {children}
     </AuthContext.Provider>
   );
