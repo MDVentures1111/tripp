@@ -35,3 +35,6 @@ build
 *.njsproj
 *.sln
 *.sw?
+
+# vbdo local environment files
+.envrc
