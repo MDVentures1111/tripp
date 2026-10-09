@@ -4,12 +4,9 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
-type Mode = 'signin' | 'signup';
-
 export const AuthPage: React.FC = () => {
-  const { user, loading, apiError, signIn, signUp, signOut } = useAuth();
+  const { user, loading, apiError, signIn, signOut } = useAuth();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -35,17 +32,14 @@ export const AuthPage: React.FC = () => {
     setSubmitting(true);
     setResultMsg(null);
 
-    let success = false;
-    if (mode === 'signin') {
-      success = await signIn(email, password);
-    } else {
-      success = await signUp(email, password);
-    }
+    const success = await signIn(email, password);
 
     if (success) {
-      setResultMsg(mode === 'signin' ? 'Login successful.' : 'Account created. Check your email for confirmation if required.');
+      setResultMsg('Login successful. Redirecting…');
+      navigate('/', { replace: true });
+    } else {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   return (
@@ -71,22 +65,13 @@ export const AuthPage: React.FC = () => {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+            autoComplete="current-password"
           />
 
           <button type="submit" disabled={loading || submitting}>
-            {submitting ? 'Processing…' : mode === 'signin' ? 'Sign In' : 'Create Account'}
+            {submitting ? 'Processing…' : 'Sign In'}
           </button>
         </form>
-
-        <div className="auth-switcher">
-          <button type="button" onClick={() => setMode('signin')} disabled={loading || submitting}>
-            Sign In
-          </button>
-          <button type="button" onClick={() => setMode('signup')} disabled={loading || submitting}>
-            Sign Up
-          </button>
-        </div>
 
         {resultMsg && <p className="success-text">{resultMsg}</p>}
         {apiError && <p className="error-text">{apiError}</p>}

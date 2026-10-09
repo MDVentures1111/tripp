@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
-import type { User, Session, AuthError, PostgrestError } from '@supabase/supabase-js';
+import type { User, Session } from '@supabase/supabase-js';
 
 interface AuthState {
   user: User | null;
@@ -42,8 +42,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Initialize session on mount (survives refresh)
   useEffect(() => {
     const initSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      updateSession(data.session);
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        updateSession(data.session);
+      } catch (err: any) {
+        console.error('Auth initialization failed:', err.message);
+        setApiError(err.message || 'Failed to initialize authentication.');
+        setLoading(false);
+      }
     };
     initSession();
 
@@ -57,29 +64,49 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signIn = async (email: string, password: string): Promise<boolean> => {
     setLoading(true);
     setApiError(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setApiError(error.message);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        setApiError(error.message);
+        setLoading(false);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      setApiError(err.message || 'Unexpected error during sign in.');
       setLoading(false);
       return false;
     }
-    return true;
   };
 
   const signUp = async (email: string, password: string): Promise<boolean> => {
     setLoading(true);
     setApiError(null);
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) {
-      setApiError(error.message);
+    try {
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) {
+        setApiError(error.message);
+        setLoading(false);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      setApiError(err.message || 'Unexpected error during sign up.');
       setLoading(false);
       return false;
     }
-    return true;
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    setLoading(true);
+    try {
+      await supabase.auth.signOut();
+      updateSession(null);
+    } catch (err: any) {
+      setApiError(err.message || 'Failed to sign out.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

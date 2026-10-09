@@ -3,8 +3,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
-import type { Database } from '../../types/database.types'; // We'll infer types loosely below
-import type { Tables } from '@supabase/supabase-js';
 
 type Membership = { id: string; user_id: string; organization_id: string; role: string; created_at: string };
 type Organization = { id: string; name: string; slug: string; created_at: string };
@@ -14,7 +12,8 @@ export const WorkspacePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [memberships, setMemberships] = useState<Membership[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [dbError, setDbError] = useState<string | null>(null);
+  const [noAccess, setNoAccess] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -26,7 +25,8 @@ export const WorkspacePage: React.FC = () => {
       }
 
       setLoading(true);
-      setError(null);
+      setDbError(null);
+      setNoAccess(false);
 
       try {
         // 1. Fetch memberships for this user
@@ -36,22 +36,31 @@ export const WorkspacePage: React.FC = () => {
           .eq('user_id', user.id);
 
         if (memErr) throw memErr;
-        if (!cancelled) setMemberships(mems || []);
+        
+        const validMemberships = mems || [];
+
+        if (validMemberships.length === 0) {
+          setNoAccess(true);
+          setLoading(false);
+          return;
+        }
+
+        setMemberships(validMemberships);
 
         // 2. Fetch organizations they belong to
-        const orgIds = (mems || []).map(m => m.organization_id);
-        if (orgIds.length > 0) {
-          const { data: orgs, error: orgErr } = await supabase
-            .from('organizations')
-            .select('*')
-            .in('id', orgIds);
+        const orgIds = validMemberships.map(m => m.organization_id);
+        
+        const { data: orgs, error: orgErr } = await supabase
+          .from('organizations')
+          .select('*')
+          .in('id', orgIds);
 
-          if (orgErr) throw orgErr;
-          if (!cancelled) setOrganizations(orgs || []);
-        }
+        if (orgErr) throw orgErr;
+        
+        if (!cancelled) setOrganizations(orgs || []);
       } catch (err: any) {
         if (!cancelled) {
-          setError(err.message || 'Failed to load organization data.');
+          setDbError(err.message || 'Failed to load organization data.');
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -91,49 +100,54 @@ export const WorkspacePage: React.FC = () => {
       </header>
 
       <main className="shell-main">
-        {error && <div className="alert alert-error">{error}</div>}
+        {dbError && <div className="alert alert-error">{dbError}</div>}
 
-        <section className="card">
-          <h3>Authentication Status</h3>
-          <dl className="info-grid">
-            <dt>Status</dt><dd className="status-active">Authenticated</dd>
-            <dt>User ID</dt><dd><code>{user?.id.slice(0, 12)}…{user?.id.slice(-4)}</code></dd>
-            <dt>Email</dt><dd>{user?.email}</dd>
-          </dl>
-        </section>
+        {noAccess ? (
+          <section className="card">
+            <h3>Authorization Required</h3>
+            <p className="muted">You do not have an active organization membership. Please contact your administrator to be granted access.</p>
+          </section>
+        ) : (
+          <>
+            <section className="card">
+              <h3>Authentication Status</h3>
+              <dl className="info-grid">
+                <dt>Status</dt><dd className="status-active">Authenticated</dd>
+                <dt>User ID</dt><dd><code>{user?.id.slice(0, 12)}…{user?.id.slice(-4)}</code></dd>
+                <dt>Email</dt><dd>{user?.email}</dd>
+              </dl>
+            </section>
 
-        <section className="card">
-          <h3>Organization Memberships</h3>
-          {memberships.length === 0 ? (
-            <p className="muted">No active organization memberships found. Contact your administrator.</p>
-          ) : (
-            <ul className="membership-list">
-              {memberships.map(m => (
-                <li key={m.id} className="membership-item">
-                  <span className="role-tag">{m.role.toUpperCase()}</span>
-                  <span>Org ID: <code>{m.organization_id.slice(0, 12)}…{m.organization_id.slice(-4)}</code></span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+            <section className="card">
+              <h3>Organization Memberships</h3>
+              <ul className="membership-list">
+                {memberships.map(m => (
+                  <li key={m.id} className="membership-item">
+                    <span className="role-tag">{m.role.toUpperCase()}</span>
+                    <span>Org ID: <code>{m.organization_id.slice(0, 12)}…{m.organization_id.slice(-4)}</code></span>
+                  </li>
+                ))}
+              </ul>
+            </section>
 
-        <section className="card">
-          <h3>Accessible Organizations</h3>
-          {organizations.length === 0 ? (
-            <p className="muted">No organizations returned by Supabase query.</p>
-          ) : (
-            <ul className="org-list">
-              {organizations.map(o => (
-                <li key={o.id} className="org-item">
-                  <strong>{o.name}</strong>
-                  <span>Slug: <code>{o.slug}</code></span>
-                  <span>Created: {new Date(o.created_at).toLocaleDateString()}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+            <section className="card">
+              <h3>Accessible Organizations</h3>
+              {organizations.length === 0 ? (
+                <p className="muted">Organization records could not be resolved from IDs.</p>
+              ) : (
+                <ul className="org-list">
+                  {organizations.map(o => (
+                    <li key={o.id} className="org-item">
+                      <strong>{o.name}</strong>
+                      <span>Slug: <code>{o.slug}</code></span>
+                      <span>Created: {new Date(o.created_at).toLocaleDateString()}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </>
+        )}
       </main>
     </div>
   );
