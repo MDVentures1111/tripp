@@ -10,6 +10,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.86.0",
     "@types/react-router-dom": "latest",
+    "lucide-react": "latest",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "latest"
