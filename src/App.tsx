@@ -1,10 +1,40 @@
-export default function App() {
+"use client";
+
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { AuthPage } from './pages/AuthPage';
+import { WorkspacePage } from './pages/WorkspacePage';
+
+const AppContent: React.FC = () => {
+  const { user } = useAuth();
+  
   return (
-    <div className="blank-page">
-      <main className="blank-page-content">
-        <h1>Blank page</h1>
-      </main>
-      <footer className="blank-page-footer">Created with vbdo</footer>
-    </div>
+    <Routes>
+      <Route path="/auth" element={<AuthPage />} />
+      <Route 
+        path="/" 
+        element={
+          <ProtectedRoute>
+            <WorkspacePage />
+          </ProtectedRoute>
+        } 
+      />
+      {/* Redirect unknown paths to auth */}
+      <Route path="*" element={<Navigate to={user ? "/" : "/auth"} replace />} />
+    </Routes>
+  );
+};
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
+
+export default App;

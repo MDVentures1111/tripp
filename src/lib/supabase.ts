@@ -1,10 +1,9 @@
-import { createClient } from "@supabase/supabase-js";
+"use client";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error("Missing Supabase environment variables. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.");
-}
+// Public configuration allowed in browser code
+const SUPABASE_URL = 'https://ufcgsdpqfqeifjzzcuei.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_paUz7liH37igNuSi0xeZ5g_Mjke_o41';
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
