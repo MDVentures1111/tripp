@@ -90,14 +90,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     resolveOrganization(userId, controller.signal).then((result) => {
       if (controller.signal.aborted) return;
-      
-      // Strict Validation: prevents older responses from overwriting a newly started verification lifecycle.
-      if (requestGeneration !== verificationGeneration) return;
 
       setResolution({ userId, generation: requestGeneration, result });
     }).catch((err) => {
       if (controller.signal.aborted) return;
-      if (requestGeneration !== verificationGeneration) return;
 
       // Treat unexpected rejections (network drops, signal overrides) as recoverable error states.
       const message = err instanceof Error ? err.message : 'Network verification failed.';
