@@ -4,14 +4,20 @@ import React, { createContext, useContext, useEffect, useState, useCallback, Rea
 import { supabase } from '../lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
 
-interface AuthState {
+interface OrganizationRecord { id: string; name: string; slug: string; created_at: string }
+
+export interface AuthState {
   user: User | null;
   session: Session | null;
   loading: boolean;
   apiError: string | null;
+  resolvedOrgId: string | null;
+  resolvedOrgName: string | null;
+  isAuthorized: boolean;
   signIn: (email: string, password: string) => Promise<boolean>;
   signInWithGoogle: () => Promise<boolean>;
   signOut: () => Promise<void>;
+  resolveOrganization: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthState>({
@@ -19,9 +25,13 @@ const AuthContext = createContext<AuthState>({
   session: null,
   loading: true,
   apiError: null,
+  resolvedOrgId: null,
+  resolvedOrgName: null,
+  isAuthorized: false,
   signIn: async () => false,
   signInWithGoogle: async () => false,
   signOut: async () => {},
+  resolveOrganization: async () => false,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -31,10 +41,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [resolvedOrgId, setResolvedOrgId] = useState<string | null>(null);
+  const [resolvedOrgName, setResolvedOrgName] = useState<string | null>(null);
+  const [isAuthorized, setIsAuthorized] = useState(false);
 
   const updateSession = useCallback((sess: Session | null) => {
     setSession(sess);
     setUser(sess?.user ?? null);
+    setResolvedOrgId(null);
+    setResolvedOrgName(null);
+    setIsAuthorized(!!sess);
     setLoading(false);
     setApiError(null);
   }, []);
@@ -55,6 +71,41 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     return () => subscription.unsubscribe();
   }, [updateSession]);
+
+  const resolveOrganization = useCallback(async (): Promise<boolean> => {
+    if (!user) return false;
+    try {
+      const { data: mems, error: memErr } = await supabase
+        .from('organization_memberships')
+        .select('*')
+        .eq('user_id', user.id);
+
+      if (memErr) throw memErr;
+      if (!mems || mems.length === 0) {
+        setIsAuthorized(false);
+        return false;
+      }
+
+      const orgIds = mems.map(m => m.organization_id);
+
+      const { data: orgs, error: orgErr } = await supabase
+        .from('organizations')
+        .select('*')
+        .in('id', orgIds);
+
+      if (orgErr) throw orgErr;
+
+      const primaryOrg = orgs && orgs.length > 0 ? orgs[0] : null;
+      setResolvedOrgId(primaryOrg?.id ?? null);
+      setResolvedOrgName(primaryOrg?.name ?? null);
+      setIsAuthorized(true);
+      return true;
+    } catch (err: any) {
+      console.error('Organization resolution failed:', err.message);
+      setApiError(err.message);
+      return false;
+    }
+  }, [user]);
 
   const signIn = async (email: string, password: string): Promise<boolean> => {
     setLoading(true);
@@ -106,7 +157,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, apiError, signIn, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      session, 
+      loading, 
+      apiError, 
+      resolvedOrgId, 
+      resolvedOrgName, 
+      isAuthorized,
+      signIn, 
+      signInWithGoogle, 
+      signOut,
+      resolveOrganization 
+    }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,162 +1,154 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
+import { 
+  LayoutDashboard, 
+  FileText, 
+  Briefcase, 
+  BrainCircuit, 
+  Settings, 
+  LogOut, 
+  Menu, 
+  X 
+} from 'lucide-react';
 
-type Membership = { id: string; user_id: string; organization_id: string; role: string; created_at: string };
-type Organization = { id: string; name: string; slug: string; created_at: string };
+type View = 'home' | 'deals' | 'documents' | 'intelligence' | 'settings';
 
 export const WorkspacePage: React.FC = () => {
-  const { user, loading: authLoading, signOut } = useAuth();
-  
-  // Explicit Authorization State Machine
-  const [authz, setAuthz] = useState<'checking' | 'authorized' | 'denied' | 'error'>('checking');
-  const [memberships, setMemberships] = useState<Membership[]>([]);
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const { user, signOut, resolvedOrgName } = useAuth();
+  const [activeView, setActiveView] = useState<View>('home');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  const navItems: { id: View; label: string; icon: any }[] = [
+    { id: 'home', label: 'Executive Overview', icon: LayoutDashboard },
+    { id: 'deals', label: 'Active Deals', icon: Briefcase },
+    { id: 'documents', label: 'Documents', icon: FileText },
+    { id: 'intelligence', label: 'Lease Intelligence', icon: BrainCircuit },
+    { id: 'settings', label: 'Account & Org', icon: Settings },
+  ];
 
-    // Reset state machine immediately when the authenticated user changes or app mounts
-    setAuthz('checking');
-    setMemberships([]);
-    setOrganizations([]);
+  const handleSignOut = async () => {
+    setMobileMenuOpen(false);
+    await signOut();
+  };
 
-    if (authLoading || !user) {
-      return;
+  const renderContent = () => {
+    switch(activeView) {
+      case 'home':
+        return <HomeView userName={user?.email} orgName={resolvedOrgName} />;
+      case 'deals':
+        return <EmptyView title="Active Deals" subtitle="No active deal pipelines are currently tracked for this organization." icon={Briefcase} />;
+      case 'documents':
+        return <EmptyView title="Documents" subtitle="Proposal and document management will appear here once initialized." icon={FileText} />;
+      case 'intelligence':
+        return <EmptyView title="Lease Intelligence" subtitle="AI-powered lease analysis and advisory capabilities are forthcoming." icon={BrainCircuit} />;
+      case 'settings':
+        return <SettingsView userEmail={user?.email ?? ''} />;
+      default:
+        return null;
     }
-
-    const verifyAccess = async () => {
-      try {
-        // 1. Verify membership exists for this specific user
-        const { data: mems, error: memErr } = await supabase
-          .from('organization_memberships')
-          .select('*')
-          .eq('user_id', user.id);
-
-        if (memErr) throw memErr;
-        
-        const validMemberships = mems || [];
-
-        // Fail closed: no memberships means unauthorized
-        if (validMemberships.length === 0) {
-          if (!cancelled) setAuthz('denied');
-          return;
-        }
-
-        setMemberships(validMemberships);
-
-        // 2. Resolve organization records corresponding to verified memberships
-        const orgIds = validMemberships.map(m => m.organization_id);
-        
-        const { data: orgs, error: orgErr } = await supabase
-          .from('organizations')
-          .select('*')
-          .in('id', orgIds);
-
-        if (orgErr) throw orgErr;
-        
-        setOrganizations(orgs || []);
-        
-        if (!cancelled) setAuthz('authorized');
-      } catch (err: any) {
-        if (!cancelled) {
-          console.error('Organization verification failed:', err.message);
-          setAuthz('error');
-        }
-      }
-    };
-
-    verifyAccess();
-
-    // Cancel pending requests on unmount or user change to prevent stale updates
-    return () => { cancelled = true; };
-  }, [user, authLoading]);
-
-  if (authLoading || authz === 'checking') {
-    return (
-      <div className="page-shell">
-        <div className="loading-state">
-          <div className="spinner" />
-          <p>Verifying secure access…</p>
-        </div>
-      </div>
-    );
-  }
+  };
 
   return (
-    <div className="page-shell">
-      <header className="shell-header">
-        <div className="shell-branding">
-          <img src="/logo-icon.png" alt="Logo" className="header-logo" />
-          <h2>TRIPP Intelligence — Workspace</h2>
-        </div>
-        <div className="shell-actions">
-          <span className="user-badge">{user?.email}</span>
-          <button onClick={() => signOut()} className="btn-secondary">
-            Sign Out
-          </button>
-        </div>
+    <div className="workspace-layout">
+      {/* Mobile Header */}
+      <header className="mobile-header">
+        <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="menu-toggle" aria-label="Toggle menu">
+          {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+        <span className="org-title">{resolvedOrgName || 'TRIPP Intelligence'}</span>
       </header>
 
-      <main className="shell-main">
-        {authz === 'error' && (
-          <section className="card">
-            <h3>System Error</h3>
-            <p className="muted">Unable to retrieve organization data due to a connection failure.</p>
-          </section>
-        )}
+      {/* Sidebar */}
+      <aside className={`sidebar ${mobileMenuOpen ? 'open' : ''}`}>
+        <div className="sidebar-header">
+          <img src="/logo-icon.png" alt="TRIPP Logo" className="sidebar-logo" />
+          <h3>TRIPP Intelligence</h3>
+        </div>
+        <nav className="sidebar-nav">
+          {navItems.map(item => (
+            <button
+              key={item.id}
+              className={`nav-item ${activeView === item.id ? 'active' : ''}`}
+              onClick={() => { setActiveView(item.id); setMobileMenuOpen(false); }}
+            >
+              <item.icon size={18} />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-footer">
+          <div className="user-info">
+            <span className="user-email">{user?.email}</span>
+          </div>
+          <button onClick={handleSignOut} className="signout-btn">
+            <LogOut size={16} /> Sign Out
+          </button>
+        </div>
+      </aside>
 
-        {authz === 'denied' && (
-          <section className="card">
-            <h3>Access Denied</h3>
-            <p className="muted">Your account does not have an active organization membership. Please contact your administrator.</p>
-          </section>
-        )}
-
-        {authz === 'authorized' && (
-          <>
-            <section className="card">
-              <h3>Authentication Status</h3>
-              <dl className="info-grid">
-                <dt>Status</dt><dd className="status-active">Authenticated</dd>
-                <dt>User ID</dt><dd><code>{user?.id.slice(0, 12)}…{user?.id.slice(-4)}</code></dd>
-                <dt>Email</dt><dd>{user?.email}</dd>
-              </dl>
-            </section>
-
-            <section className="card">
-              <h3>Organization Memberships</h3>
-              <ul className="membership-list">
-                {memberships.map(m => (
-                  <li key={m.id} className="membership-item">
-                    <span className="role-tag">{m.role.toUpperCase()}</span>
-                    <span>Org ID: <code>{m.organization_id.slice(0, 12)}…{m.organization_id.slice(-4)}</code></span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <section className="card">
-              <h3>Accessible Organizations</h3>
-              {organizations.length === 0 ? (
-                <p className="muted">Organization records could not be resolved from IDs.</p>
-              ) : (
-                <ul className="org-list">
-                  {organizations.map(o => (
-                    <li key={o.id} className="org-item">
-                      <strong>{o.name}</strong>
-                      <span>Slug: <code>{o.slug}</code></span>
-                      <span>Created: {new Date(o.created_at).toLocaleDateString()}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </>
-        )}
+      {/* Main Content */}
+      <main className="workspace-main">
+        {renderContent()}
       </main>
     </div>
   );
 };
+
+const HomeView = ({ userName, orgName }: { userName?: string; orgName?: string }) => (
+  <div className="view-container">
+    <h1 className="view-title">Executive Overview</h1>
+    <p className="view-subtitle">Welcome to {orgName || 'TRIPP Intelligence'}, {userName?.split('@')[0]}.</p>
+    <div className="dashboard-grid">
+      <div className="stat-card">
+        <h3>Portfolio Size</h3>
+        <p className="stat-value">—</p>
+        <p className="stat-caption">Total square footage pending analysis</p>
+      </div>
+      <div className="stat-card">
+        <h3>Active Leases</h3>
+        <p className="stat-value">—</p>
+        <p className="stat-caption">Contracts under review or active</p>
+      </div>
+      <div className="stat-card">
+        <h3>Upcoming Expirations</h3>
+        <p className="stat-value">—</p>
+        <p className="stat-caption">Critical decision points requiring action</p>
+      </div>
+      <div className="stat-card highlight">
+        <h3>Intelligence Score</h3>
+        <p className="stat-value">—</p>
+        <p className="stat-caption">Aggregate risk & opportunity indicator</p>
+      </div>
+    </div>
+  </div>
+);
+
+const EmptyView = ({ title, subtitle, icon: Icon }: { title: string; subtitle: string; icon: any }) => (
+  <div className="view-container">
+    <div className="empty-state">
+      <Icon size={48} className="empty-icon" />
+      <h2>{title}</h2>
+      <p>{subtitle}</p>
+    </div>
+  </div>
+);
+
+const SettingsView = ({ userEmail }: { userEmail: string }) => (
+  <div className="view-container">
+    <h1 className="view-title">Account & Organization</h1>
+    <div className="card">
+      <h3>User Profile</h3>
+      <dl className="info-grid">
+        <dt>Email Address</dt><dd>{userEmail}</dd>
+        <dt>Authentication Method</dt><dd>Google OAuth / SSO</dd>
+        <dt>Status</dt><dd className="status-active">Authorized</dd>
+      </dl>
+    </div>
+    <div className="card muted">
+      <h3>Organization Management</h3>
+      <p>Admin controls and billing configurations are accessible to super-admins only.</p>
+    </div>
+  </div>
+);
