@@ -82,12 +82,13 @@ const assertDealId = (dealId: string): void => {
 };
 
 /**
- * Trims text and converts blank or non-text values to null for nullable
- * columns. Accepts `unknown` so malformed runtime values are normalized
- * safely instead of throwing on `.trim()`.
+ * Normalizes a validated nullable text value: trims surrounding whitespace and
+ * converts an empty result to `null`. Unexpected non-string runtime values are
+ * rejected earlier by field validation, so this only ever receives text,
+ * `null`, or `undefined`.
  */
-const normalizeOptionalText = (value: unknown): string | null => {
-  if (typeof value !== 'string') return null;
+const normalizeOptionalText = (value: string | null | undefined): string | null => {
+  if (value === null || value === undefined) return null;
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
 };

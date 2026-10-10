@@ -65,6 +65,18 @@ export const validateDealStatus = (value: unknown): string | undefined => {
   return undefined;
 };
 
+/**
+ * Returns an error message when a nullable text field is neither text, `null`,
+ * nor `undefined`. Blank strings are permitted and normalized to `null` by the
+ * data layer. Unexpected runtime types (numbers, booleans, objects, arrays) are
+ * rejected rather than silently coerced to `null`.
+ */
+export const validateOptionalText = (value: unknown, label: string): string | undefined => {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== 'string') return `${label} must be text.`;
+  return undefined;
+};
+
 /** Validates a creation payload. An empty result means the input is valid. */
 export function validateDealCreate(input: DealCreateInput): DealFieldErrors {
   const errors: DealFieldErrors = {};
@@ -84,6 +96,15 @@ export function validateDealCreate(input: DealCreateInput): DealFieldErrors {
 
   const squareFeetError = validateTargetSquareFeet(input.target_square_feet);
   if (squareFeetError) errors.target_square_feet = squareFeetError;
+
+  const tenantNameError = validateOptionalText(input.tenant_name, 'Tenant name');
+  if (tenantNameError) errors.tenant_name = tenantNameError;
+
+  const marketError = validateOptionalText(input.market, 'Market');
+  if (marketError) errors.market = marketError;
+
+  const notesError = validateOptionalText(input.notes, 'Notes');
+  if (notesError) errors.notes = notesError;
 
   return errors;
 }
@@ -111,6 +132,15 @@ export function validateDealUpdate(input: DealUpdateInput): DealFieldErrors {
     const squareFeetError = validateTargetSquareFeet(input.target_square_feet);
     if (squareFeetError) errors.target_square_feet = squareFeetError;
   }
+
+  const tenantNameError = validateOptionalText(input.tenant_name, 'Tenant name');
+  if (tenantNameError) errors.tenant_name = tenantNameError;
+
+  const marketError = validateOptionalText(input.market, 'Market');
+  if (marketError) errors.market = marketError;
+
+  const notesError = validateOptionalText(input.notes, 'Notes');
+  if (notesError) errors.notes = notesError;
 
   return errors;
 }
