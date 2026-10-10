@@ -1,54 +1,57 @@
 "use client";
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AuthPage } from './pages/AuthPage';
-import { WorkspacePage } from './pages/WorkspacePage';
+import { WorkspaceLayout } from './pages/WorkspaceLayout';
 import { RestrictedAccess } from './pages/RestrictedAccess';
+import { DatabaseError } from './pages/DatabaseError';
 
 const AppContent: React.FC = () => {
-  const { user, loading, isAuthorized, resolveOrganization } = useAuth();
-  
-  useEffect(() => {
-    if (!loading && user && !isAuthorized) {
-      resolveOrganization();
-    }
-  }, [loading, user, isAuthorized, resolveOrganization]);
+  const { user, authState, apiError } = useAuth();
 
-  if (loading) {
+  // Loading Phase: Initializing or actively resolving org membership
+  if (authState === 'initializing' || authState === 'checking') {
     return (
       <div className="page-shell center-content">
         <div className="loading-state">
           <div className="spinner" aria-label="Loading" />
-          <p>Initializing secure session…</p>
+          <p>Establishing secure session…</p>
         </div>
       </div>
     );
   }
 
-  if (user && !isAuthorized) {
+  // Error Phase: Database failures during authorization
+  if (authState === 'error') {
     return (
       <Routes>
-        <Route path="/restricted" element={<RestrictedAccess />} />
-        <Route path="*" element={<Navigate to="/restricted" replace />} />
+        <Route path="/database-error" element={<DatabaseError message={apiError} />} />
+        <Route path="*" element={<Navigate to="/database-error" replace />} />
       </Routes>
     );
   }
 
+  // Restricted Phase: Authenticated but lacking valid org membership
+  if (authState === 'restricted') {
+    return <RestrictedAccess />;
+  }
+
+  // Authorized Phase: Valid session + verified organization membership
   return (
     <Routes>
-      <Route path="/auth" element={<AuthPage />} />
       <Route 
         path="/" 
         element={
           <ProtectedRoute>
-            <WorkspacePage />
+            <WorkspaceLayout />
           </ProtectedRoute>
         } 
       />
-      <Route path="*" element={<Navigate to={isAuthorized ? "/" : "/auth"} replace />} />
+      <Route path="/auth" element={<AuthPage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 };

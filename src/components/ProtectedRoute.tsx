@@ -9,21 +9,11 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { loading, session } = useAuth();
+  const { authState, user, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="page-shell">
-        <div className="loading-state">
-          <div className="spinner" />
-          <p>Verifying secure session…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!session) {
-    return <Navigate to="/auth" replace />;
+  // Prevent double-rendering: rely on App.tsx for global loading/error/restricted
+  if (loading || authState !== 'authorized' || !user) {
+    return null;
   }
 
   return <>{children}</>;

@@ -1,37 +1,36 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import type { User, Session } from '@supabase/supabase-js';
+
+// Explicit authorization lifecycle states
+export type AuthorizationState = 'initializing' | 'checking' | 'authorized' | 'restricted' | 'error';
 
 interface OrganizationRecord { id: string; name: string; slug: string; created_at: string }
 
 export interface AuthState {
   user: User | null;
   session: Session | null;
-  loading: boolean;
-  apiError: string | null;
+  authState: AuthorizationState;
   resolvedOrgId: string | null;
   resolvedOrgName: string | null;
-  isAuthorized: boolean;
+  apiError: string | null;
   signIn: (email: string, password: string) => Promise<boolean>;
-  signInWithGoogle: () => Promise<boolean>;
+  signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
-  resolveOrganization: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthState>({
   user: null,
   session: null,
-  loading: true,
-  apiError: null,
+  authState: 'initializing',
   resolvedOrgId: null,
   resolvedOrgName: null,
-  isAuthorized: false,
+  apiError: null,
   signIn: async () => false,
-  signInWithGoogle: async () => false,
+  signInWithGoogle: async () => {},
   signOut: async () => {},
-  resolveOrganization: async () => false,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -39,94 +38,147 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [authState, setAuthState] = useState<AuthorizationState>('initializing');
   const [apiError, setApiError] = useState<string | null>(null);
   const [resolvedOrgId, setResolvedOrgId] = useState<string | null>(null);
   const [resolvedOrgName, setResolvedOrgName] = useState<string | null>(null);
-  const [isAuthorized, setIsAuthorized] = useState(false);
 
-  const updateSession = useCallback((sess: Session | null) => {
-    setSession(sess);
-    setUser(sess?.user ?? null);
-    setResolvedOrgId(null);
-    setResolvedOrgName(null);
-    setIsAuthorized(!!sess);
-    setLoading(false);
-    setApiError(null);
-  }, []);
+  // Stable reference to the latest abort controller for cancellation safety
+  const abortRef = useRef<AbortController | null>(null);
 
   // Initialize session on mount (survives refresh)
   useEffect(() => {
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (error) {
-        console.error('Auth initialization failed:', error.message);
-        setApiError(error.message);
+    const loadInitialSession = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        setSession(data.session);
+        setUser(data.session?.user ?? null);
+        
+        // Trigger organization check immediately if a session exists
+        if (data.session) {
+          await startOrganizationResolution();
+        } else {
+          setAuthState('initializing');
+        }
+      } catch (err: any) {
+        console.error('Auth initialization failed:', err.message);
+        setApiError(err.message);
+        setAuthState('error');
       }
-      updateSession(data.session);
-    });
+    };
+
+    loadInitialSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      updateSession(newSession);
+      setSession(newSession);
+      setUser(newSession?.user ?? null);
+      
+      // Invalidate previous organization context immediately upon session change
+      setResolvedOrgId(null);
+      setResolvedOrgName(null);
+      setApiError(null);
+
+      if (newSession) {
+        startOrganizationResolution();
+      } else {
+        setAuthState('initializing');
+      }
     });
 
-    return () => subscription.unsubscribe();
-  }, [updateSession]);
+    return () => {
+      subscription.unsubscribe();
+      // Cancel any in-flight resolution on cleanup
+      abortRef.current?.abort();
+    };
+  }, []);
 
-  const resolveOrganization = useCallback(async (): Promise<boolean> => {
-    if (!user) return false;
+  const startOrganizationResolution = useCallback(async () => {
+    // Abort any pending resolution request
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    // Ensure we have a user before proceeding
+    if (!user) return;
+
+    setAuthState('checking');
+
     try {
+      // 1. Verify active memberships
       const { data: mems, error: memErr } = await supabase
         .from('organization_memberships')
         .select('*')
         .eq('user_id', user.id);
 
-      if (memErr) throw memErr;
-      if (!mems || mems.length === 0) {
-        setIsAuthorized(false);
-        return false;
+      if (controller.signal.aborted || memErr) {
+        if (memErr && !controller.signal.aborted) {
+          setApiError(memErr.message);
+          setAuthState('error');
+        }
+        return;
       }
 
-      const orgIds = mems.map(m => m.organization_id);
+      if (!mems || mems.length === 0) {
+        setAuthState('restricted');
+        return;
+      }
 
+      // 2. Fetch associated organizations
+      const orgIds = mems.map(m => m.organization_id);
       const { data: orgs, error: orgErr } = await supabase
         .from('organizations')
         .select('*')
         .in('id', orgIds);
 
-      if (orgErr) throw orgErr;
+      if (controller.signal.aborted) return;
 
-      const primaryOrg = orgs && orgs.length > 0 ? orgs[0] : null;
-      setResolvedOrgId(primaryOrg?.id ?? null);
-      setResolvedOrgName(primaryOrg?.name ?? null);
-      setIsAuthorized(true);
-      return true;
+      if (orgErr) {
+        setApiError(orgErr.message);
+        setAuthState('error');
+        return;
+      }
+
+      if (!orgs || orgs.length === 0) {
+        setAuthState('restricted');
+        return;
+      }
+
+      // Success state: authorized with primary organization context
+      const primaryOrg = orgs[0];
+      setResolvedOrgId(primaryOrg.id);
+      setResolvedOrgName(primaryOrg.name);
+      setAuthState('authorized');
     } catch (err: any) {
-      console.error('Organization resolution failed:', err.message);
-      setApiError(err.message);
-      return false;
+      if (!controller.signal.aborted) {
+        console.error('Organization resolution failed:', err.message);
+        setApiError(err.message);
+        setAuthState('error');
+      }
     }
   }, [user]);
 
   const signIn = async (email: string, password: string): Promise<boolean> => {
-    setLoading(true);
+    setAuthState('checking');
     setApiError(null);
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         setApiError(error.message);
-        setLoading(false);
+        setAuthState('initializing');
         return false;
       }
+      // On success, session change listener triggers resolution automatically
       return true;
     } catch (err: any) {
       setApiError(err.message || 'Unexpected error during sign in.');
-      setLoading(false);
+      setAuthState('error');
       return false;
     }
   };
 
-  const signInWithGoogle = async (): Promise<boolean> => {
-    setLoading(true);
+  const signInWithGoogle = async (): Promise<void> => {
+    setAuthState('checking');
     setApiError(null);
     try {
       const { error } = await supabase.auth.signInWithOAuth({
@@ -134,25 +186,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       if (error) {
         setApiError(error.message);
-        setLoading(false);
-        return false;
+        setAuthState('initializing');
       }
-      return true;
     } catch (err: any) {
       setApiError(err.message || 'Unexpected error during Google sign-in.');
-      setLoading(false);
-      return false;
+      setAuthState('error');
     }
   };
 
-  const signOut = async () => {
+  const signOut = async (): Promise<void> => {
+    abortRef.current?.abort();
+    setAuthState('initializing');
+    setResolvedOrgId(null);
+    setResolvedOrgName(null);
+    setApiError(null);
+
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      updateSession(null);
+      await supabase.auth.signOut();
     } catch (err: any) {
-      setApiError(err.message || 'Failed to sign out.');
-      setLoading(false);
+      console.error('Sign out failed:', err.message);
     }
   };
 
@@ -160,15 +212,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     <AuthContext.Provider value={{ 
       user, 
       session, 
-      loading, 
+      authState, 
       apiError, 
       resolvedOrgId, 
-      resolvedOrgName, 
-      isAuthorized,
+      resolvedOrgName,
       signIn, 
       signInWithGoogle, 
-      signOut,
-      resolveOrganization 
+      signOut 
     }}>
       {children}
     </AuthContext.Provider>
