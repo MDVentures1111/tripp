@@ -106,7 +106,6 @@ REVOKE ALL ON TABLE public.deals FROM anon;
 REVOKE DELETE ON TABLE public.deals FROM authenticated;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.deals TO authenticated;
 
-CREATE INDEX idx_deals_organization_id ON public.deals(organization_id);
 CREATE INDEX idx_deals_org_status ON public.deals(organization_id, status);
 
 COMMIT;
