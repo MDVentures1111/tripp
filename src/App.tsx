@@ -4,54 +4,45 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { LoadingScreen } from './components/LoadingScreen';
 import { AuthPage } from './pages/AuthPage';
 import { WorkspaceLayout } from './pages/WorkspaceLayout';
-import { RestrictedAccess } from './pages/RestrictedAccess';
-import { DatabaseError } from './pages/DatabaseError';
+import { HomeView } from './pages/HomeView';
+import { DealsView } from './pages/DealsView';
+import { DealWorkspace } from './pages/DealWorkspace';
+import { DocumentsView } from './pages/DocumentsView';
+import { IntelligenceView } from './pages/IntelligenceView';
+import { SettingsView } from './pages/SettingsView';
 
 const AppContent: React.FC = () => {
-  const { user, authState, apiError } = useAuth();
+  const { authState } = useAuth();
 
-  // Loading Phase: Initializing or actively resolving org membership
-  if (authState === 'initializing' || authState === 'checking') {
-    return (
-      <div className="page-shell center-content">
-        <div className="loading-state">
-          <div className="spinner" aria-label="Loading" />
-          <p>Establishing secure session…</p>
-        </div>
-      </div>
-    );
+  // Wait for the first auth event so OAuth redirects are processed before any route redirect runs.
+  if (authState === 'initializing') {
+    return <LoadingScreen message="Establishing secure session…" />;
   }
 
-  // Error Phase: Database failures during authorization
-  if (authState === 'error') {
-    return (
-      <Routes>
-        <Route path="/database-error" element={<DatabaseError message={apiError} />} />
-        <Route path="*" element={<Navigate to="/database-error" replace />} />
-      </Routes>
-    );
-  }
-
-  // Restricted Phase: Authenticated but lacking valid org membership
-  if (authState === 'restricted') {
-    return <RestrictedAccess />;
-  }
-
-  // Authorized Phase: Valid session + verified organization membership
   return (
     <Routes>
-      <Route 
-        path="/" 
+      <Route path="/auth" element={<AuthPage />} />
+      <Route
+        path="/workspace"
         element={
           <ProtectedRoute>
             <WorkspaceLayout />
           </ProtectedRoute>
-        } 
-      />
-      <Route path="/auth" element={<AuthPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+        }
+      >
+        <Route index element={<HomeView />} />
+        <Route path="deals" element={<DealsView />} />
+        <Route path="deals/:id" element={<DealWorkspace />} />
+        <Route path="documents" element={<DocumentsView />} />
+        <Route path="intelligence" element={<IntelligenceView />} />
+        <Route path="settings" element={<SettingsView />} />
+        <Route path="*" element={<Navigate to="/workspace" replace />} />
+      </Route>
+      <Route path="/" element={<Navigate to="/workspace" replace />} />
+      <Route path="*" element={<Navigate to="/workspace" replace />} />
     </Routes>
   );
 };

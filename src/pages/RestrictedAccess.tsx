@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { AlertTriangle } from 'lucide-react';
 
 export const RestrictedAccess: React.FC = () => {
-  const { signOut } = useAuth();
+  const { signOut, signOutError } = useAuth();
 
   return (
     <div className="page-shell center-content">
@@ -15,6 +15,7 @@ export const RestrictedAccess: React.FC = () => {
           <h2>Access Restricted</h2>
           <p className="muted">Your account does not have an active organization membership. Please contact your administrator.</p>
         </div>
+        {signOutError && <div className="alert alert-error">Sign out failed: {signOutError}</div>}
         <button onClick={() => signOut()} className="btn-secondary w-full">Return to Sign In</button>
       </div>
     </div>

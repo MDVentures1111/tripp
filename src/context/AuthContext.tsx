@@ -1,13 +1,17 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
+import { resolveOrganization, type OrganizationResolution } from '../lib/organization';
 import type { User, Session } from '@supabase/supabase-js';
 
-// Explicit authorization lifecycle states
-export type AuthorizationState = 'initializing' | 'checking' | 'authorized' | 'restricted' | 'error';
-
-interface OrganizationRecord { id: string; name: string; slug: string; created_at: string }
+export type AuthorizationState =
+  | 'initializing'
+  | 'unauthenticated'
+  | 'checking'
+  | 'authorized'
+  | 'restricted'
+  | 'error';
 
 export interface AuthState {
   user: User | null;
@@ -16,9 +20,11 @@ export interface AuthState {
   resolvedOrgId: string | null;
   resolvedOrgName: string | null;
   apiError: string | null;
+  signOutError: string | null;
   signIn: (email: string, password: string) => Promise<boolean>;
   signInWithGoogle: () => Promise<void>;
-  signOut: () => Promise<void>;
+  signOut: () => Promise<boolean>;
+  retryAuthorization: () => void;
 }
 
 const AuthContext = createContext<AuthState>({
@@ -28,198 +34,134 @@ const AuthContext = createContext<AuthState>({
   resolvedOrgId: null,
   resolvedOrgName: null,
   apiError: null,
+  signOutError: null,
   signIn: async () => false,
   signInWithGoogle: async () => {},
-  signOut: async () => {},
+  signOut: async () => false,
+  retryAuthorization: () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
+interface Resolution {
+  userId: string;
+  result: OrganizationResolution;
+}
+
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [authState, setAuthState] = useState<AuthorizationState>('initializing');
-  const [apiError, setApiError] = useState<string | null>(null);
-  const [resolvedOrgId, setResolvedOrgId] = useState<string | null>(null);
-  const [resolvedOrgName, setResolvedOrgName] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [resolution, setResolution] = useState<Resolution | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [signInError, setSignInError] = useState<string | null>(null);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
 
-  // Stable reference to the latest abort controller for cancellation safety
-  const abortRef = useRef<AbortController | null>(null);
+  const user = session?.user ?? null;
+  const userId = user?.id ?? null;
 
-  // Initialize session on mount (survives refresh)
+  // Single subscription. The callback is synchronous and only records the session;
+  // no Supabase calls are made inside it, so it cannot recurse or deadlock.
+  // INITIAL_SESSION replaces a separate getSession() call.
   useEffect(() => {
-    const loadInitialSession = async () => {
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        setSession(data.session);
-        setUser(data.session?.user ?? null);
-        
-        // Trigger organization check immediately if a session exists
-        if (data.session) {
-          await startOrganizationResolution();
-        } else {
-          setAuthState('initializing');
-        }
-      } catch (err: any) {
-        console.error('Auth initialization failed:', err.message);
-        setApiError(err.message);
-        setAuthState('error');
-      }
-    };
-
-    loadInitialSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
-      
-      // Invalidate previous organization context immediately upon session change
-      setResolvedOrgId(null);
-      setResolvedOrgName(null);
-      setApiError(null);
-
-      if (newSession) {
-        startOrganizationResolution();
-      } else {
-        setAuthState('initializing');
-      }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setSessionReady(true);
     });
 
-    return () => {
-      subscription.unsubscribe();
-      // Cancel any in-flight resolution on cleanup
-      abortRef.current?.abort();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
-  const startOrganizationResolution = useCallback(async () => {
-    // Abort any pending resolution request
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
+  // Organization resolution is keyed on the user id (not the session object), so token
+  // refreshes and repeated SIGNED_IN events for the same user do not re-run it.
+  // Cleanup aborts the in-flight request, invalidating stale results.
+  useEffect(() => {
+    if (!sessionReady) return;
 
-    // Ensure we have a user before proceeding
-    if (!user) return;
-
-    setAuthState('checking');
-
-    try {
-      // 1. Verify active memberships
-      const { data: mems, error: memErr } = await supabase
-        .from('organization_memberships')
-        .select('*')
-        .eq('user_id', user.id);
-
-      if (controller.signal.aborted || memErr) {
-        if (memErr && !controller.signal.aborted) {
-          setApiError(memErr.message);
-          setAuthState('error');
-        }
-        return;
-      }
-
-      if (!mems || mems.length === 0) {
-        setAuthState('restricted');
-        return;
-      }
-
-      // 2. Fetch associated organizations
-      const orgIds = mems.map(m => m.organization_id);
-      const { data: orgs, error: orgErr } = await supabase
-        .from('organizations')
-        .select('*')
-        .in('id', orgIds);
-
-      if (controller.signal.aborted) return;
-
-      if (orgErr) {
-        setApiError(orgErr.message);
-        setAuthState('error');
-        return;
-      }
-
-      if (!orgs || orgs.length === 0) {
-        setAuthState('restricted');
-        return;
-      }
-
-      // Success state: authorized with primary organization context
-      const primaryOrg = orgs[0];
-      setResolvedOrgId(primaryOrg.id);
-      setResolvedOrgName(primaryOrg.name);
-      setAuthState('authorized');
-    } catch (err: any) {
-      if (!controller.signal.aborted) {
-        console.error('Organization resolution failed:', err.message);
-        setApiError(err.message);
-        setAuthState('error');
-      }
+    if (!userId) {
+      setResolution(null);
+      return;
     }
-  }, [user]);
 
-  const signIn = async (email: string, password: string): Promise<boolean> => {
-    setAuthState('checking');
-    setApiError(null);
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        setApiError(error.message);
-        setAuthState('initializing');
-        return false;
-      }
-      // On success, session change listener triggers resolution automatically
-      return true;
-    } catch (err: any) {
-      setApiError(err.message || 'Unexpected error during sign in.');
-      setAuthState('error');
+    const controller = new AbortController();
+    setResolution(null);
+
+    resolveOrganization(userId, controller.signal).then((result) => {
+      if (controller.signal.aborted) return;
+      setResolution({ userId, result });
+    });
+
+    return () => controller.abort();
+  }, [sessionReady, userId, attempt]);
+
+  // Derived state: a resolution only counts if it was produced for the current user.
+  const current = resolution && resolution.userId === userId ? resolution.result : null;
+
+  let authState: AuthorizationState;
+  if (!sessionReady) {
+    authState = 'initializing';
+  } else if (!userId) {
+    authState = 'unauthenticated';
+  } else {
+    authState = current ? current.status : 'checking';
+  }
+
+  const resolvedOrgId = current?.status === 'authorized' ? current.orgId : null;
+  const resolvedOrgName = current?.status === 'authorized' ? current.orgName : null;
+  const apiError = current?.status === 'error' ? current.message : signInError;
+
+  const signIn = useCallback(async (email: string, password: string): Promise<boolean> => {
+    setSignInError(null);
+    setSignOutError(null);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setSignInError(error.message);
       return false;
     }
-  };
+    // Session change listener drives authorization.
+    return true;
+  }, []);
 
-  const signInWithGoogle = async (): Promise<void> => {
-    setAuthState('checking');
-    setApiError(null);
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-      });
-      if (error) {
-        setApiError(error.message);
-        setAuthState('initializing');
-      }
-    } catch (err: any) {
-      setApiError(err.message || 'Unexpected error during Google sign-in.');
-      setAuthState('error');
+  const signInWithGoogle = useCallback(async (): Promise<void> => {
+    setSignInError(null);
+    setSignOutError(null);
+    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
+    if (error) {
+      setSignInError(error.message);
     }
-  };
+  }, []);
 
-  const signOut = async (): Promise<void> => {
-    abortRef.current?.abort();
-    setAuthState('initializing');
-    setResolvedOrgId(null);
-    setResolvedOrgName(null);
-    setApiError(null);
-
-    try {
-      await supabase.auth.signOut();
-    } catch (err: any) {
-      console.error('Sign out failed:', err.message);
+  const signOut = useCallback(async (): Promise<boolean> => {
+    setSignOutError(null);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      // Session is untouched; surface the failure so the user can retry.
+      setSignOutError(error.message);
+      return false;
     }
-  };
+    // The SIGNED_OUT event clears the session and moves state to 'unauthenticated'.
+    return true;
+  }, []);
+
+  const retryAuthorization = useCallback(() => setAttempt((n) => n + 1), []);
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      session, 
-      authState, 
-      apiError, 
-      resolvedOrgId, 
-      resolvedOrgName,
-      signIn, 
-      signInWithGoogle, 
-      signOut 
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        authState,
+        apiError,
+        signOutError,
+        resolvedOrgId,
+        resolvedOrgName,
+        signIn,
+        signInWithGoogle,
+        signOut,
+        retryAuthorization,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

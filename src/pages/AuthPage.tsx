@@ -2,36 +2,37 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 
 export const AuthPage: React.FC = () => {
-  const { user, loading, apiError, signIn, signInWithGoogle } = useAuth();
-  const navigate = useNavigate();
+  const { user, authState, apiError, signIn, signInWithGoogle } = useAuth();
+  const location = useLocation();
+  const loading = authState === 'checking';
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Redirect to dashboard if already authenticated
+  // Redirect once authenticated; ProtectedRoute then decides authorized / restricted / error
   if (user) {
-    return <Navigate to="/" replace />;
+    const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+    const target = from && from.startsWith('/workspace') ? from : '/workspace';
+    return <Navigate to={target} replace />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     
-    const success = await signIn(email, password);
-    if (success) {
-      navigate('/', { replace: true });
-    }
+    await signIn(email, password);
     setIsSubmitting(false);
   };
 
   const handleGoogleSignIn = async () => {
     setIsSubmitting(true);
     await signInWithGoogle();
+    setIsSubmitting(false);
   };
 
   return (
