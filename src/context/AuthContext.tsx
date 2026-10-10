@@ -85,8 +85,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     const controller = new AbortController();
-    setResolution(null);
-
+    
     resolveOrganization(userId, controller.signal).then((result) => {
       if (controller.signal.aborted) return;
       setResolution({ userId, result });
@@ -144,7 +143,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return true;
   }, []);
 
-  const retryAuthorization = useCallback(() => setAttempt((n) => n + 1), []);
+  const retryAuthorization = useCallback(() => {
+    setResolution(null);
+    setSignInError(null);
+    setAttempt((n) => n + 1);
+  }, []);
 
   return (
     <AuthContext.Provider
