@@ -180,10 +180,10 @@ export async function getDeal(
     .from('deals')
     .select(DEAL_COLUMNS)
     .eq('id', dealId)
-    .eq('organization_id', organizationId)
-    .maybeSingle();
+    .eq('organization_id', organizationId);
 
-  const { data, error } = signal ? await request.abortSignal(signal) : await request;
+  const scopedRequest = signal ? request.abortSignal(signal) : request;
+  const { data, error } = await scopedRequest.maybeSingle();
 
   if (error) throw new DealError(safeErrorMessage(error.code, READ_FALLBACK));
 
