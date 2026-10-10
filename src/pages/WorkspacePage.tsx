@@ -36,7 +36,7 @@ export const WorkspacePage: React.FC = () => {
   const renderContent = () => {
     switch(activeView) {
       case 'home':
-        return <HomeView userName={user?.email} orgName={resolvedOrgName} />;
+        return <HomeView userName={user?.email} orgName={resolvedOrgName ?? undefined} />;
       case 'deals':
         return <EmptyView title="Active Deals" subtitle="No active deal pipelines are currently tracked for this organization." icon={Briefcase} />;
       case 'documents':
