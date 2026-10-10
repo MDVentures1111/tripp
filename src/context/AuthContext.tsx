@@ -51,8 +51,12 @@ interface Resolution {
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
+  
+  // Strictly tracks which specific asynchronous authorization check the UI should currently honor.
+  // Increments automatically whenever the identity changes or verification is retried.
+  const [verificationGeneration, setVerificationGeneration] = useState(0);
+  
   const [resolution, setResolution] = useState<Resolution | null>(null);
-  const [attempt, setAttempt] = useState(0);
   const [signInError, setSignInError] = useState<string | null>(null);
   const [signOutError, setSignOutError] = useState<string | null>(null);
 
@@ -73,8 +77,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => subscription.unsubscribe();
   }, []);
 
-  // Organization resolution is keyed on the user id (not the session object), so token
-  // refreshes and repeated SIGNED_IN events for the same user do not re-run it.
+  // Organization resolution is keyed on both the user id and the active verification generation.
   // Cleanup aborts the in-flight request, invalidating stale results.
   useEffect(() => {
     if (!sessionReady) return;
@@ -86,13 +89,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const controller = new AbortController();
     
+    // Capture the current verification generation to validate the async response later.
+    const activeGeneration = verificationGeneration;
+
     resolveOrganization(userId, controller.signal).then((result) => {
+      // Safeguard: only accept this result if it belongs to the most recent verification attempt
+      // and hasn't been cancelled by the effect cleanup.
       if (controller.signal.aborted) return;
+      if (activeGeneration !== verificationGeneration) return;
+
       setResolution({ userId, result });
     });
 
     return () => controller.abort();
-  }, [sessionReady, userId, attempt]);
+  }, [sessionReady, userId, verificationGeneration]);
 
   // Derived state: a resolution only counts if it was produced for the current user.
   const current = resolution && resolution.userId === userId ? resolution.result : null;
@@ -113,6 +123,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const signIn = useCallback(async (email: string, password: string): Promise<boolean> => {
     setSignInError(null);
     setSignOutError(null);
+    
+    // Advance the verification generation immediately.
+    // This ensures that any pending background resolution triggered by a previous session 
+    // will fail the generation check and will not overwrite the upcoming verified state.
+    setVerificationGeneration((n) => n + 1);
+
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setSignInError(error.message);
@@ -133,6 +149,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const signOut = useCallback(async (): Promise<boolean> => {
     setSignOutError(null);
+    // Invalidate any ongoing resolution immediately upon sign-out intent.
+    setVerificationGeneration((n) => n + 1);
     const { error } = await supabase.auth.signOut();
     if (error) {
       // Session is untouched; surface the failure so the user can retry.
@@ -144,9 +162,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const retryAuthorization = useCallback(() => {
-    setResolution(null);
     setSignInError(null);
-    setAttempt((n) => n + 1);
+    // Trigger a fresh validation cycle by bumping the generation counter.
+    setVerificationGeneration((n) => n + 1);
   }, []);
 
   return (
