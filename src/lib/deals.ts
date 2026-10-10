@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import {
   hasFieldErrors,
+  isValidUuid,
   validateDealCreate,
   validateDealUpdate,
   type DealFieldErrors,
@@ -44,9 +45,49 @@ export class DealValidationError extends DealError {
   }
 }
 
-/** Trims text and converts blank values to null for nullable columns. */
-const normalizeOptionalText = (value: string | null | undefined): string | null => {
-  if (value === null || value === undefined) return null;
+/** Safe fallback messages that avoid leaking raw database error details. */
+const READ_FALLBACK = 'The deals could not be loaded. Please try again.';
+const WRITE_FALLBACK = 'The deal could not be saved. Please try again.';
+
+/** Maps database/PostgREST error codes to safe, actionable messages. */
+const safeErrorMessage = (code: string | null | undefined, fallback: string): string => {
+  switch (code) {
+    case '23505':
+      return 'A deal with these details already exists.';
+    case '23514':
+      return 'The deal details violate a required rule.';
+    case '23503':
+      return 'A referenced record is not valid.';
+    case '42501':
+      return 'You do not have permission to perform this action.';
+    case 'PGRST116':
+      return 'This deal could not be found.';
+    default:
+      return fallback;
+  }
+};
+
+/** Throws before any query when the organization scope is not a valid id. */
+const assertOrganizationId = (organizationId: string): void => {
+  if (!isValidUuid(organizationId)) {
+    throw new DealError('A valid organization scope is required.');
+  }
+};
+
+/** Throws before any query when the deal identifier is not a valid id. */
+const assertDealId = (dealId: string): void => {
+  if (!isValidUuid(dealId)) {
+    throw new DealError('A valid deal identifier is required.');
+  }
+};
+
+/**
+ * Trims text and converts blank or non-text values to null for nullable
+ * columns. Accepts `unknown` so malformed runtime values are normalized
+ * safely instead of throwing on `.trim()`.
+ */
+const normalizeOptionalText = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
 };
@@ -74,25 +115,25 @@ const buildInsertPayload = (organizationId: string, input: DealCreateInput) => (
 const buildUpdatePayload = (input: DealUpdateInput): Record<string, unknown> => {
   const payload: Record<string, unknown> = {};
 
-  if ('deal_name' in input && input.deal_name !== undefined) {
+  if (input.deal_name !== undefined) {
     payload.deal_name = input.deal_name.trim();
   }
-  if ('tenant_name' in input) {
+  if (input.tenant_name !== undefined) {
     payload.tenant_name = normalizeOptionalText(input.tenant_name);
   }
-  if ('deal_type' in input && input.deal_type !== undefined) {
+  if (input.deal_type !== undefined) {
     payload.deal_type = input.deal_type;
   }
-  if ('status' in input && input.status !== undefined) {
+  if (input.status !== undefined) {
     payload.status = input.status;
   }
-  if ('market' in input) {
+  if (input.market !== undefined) {
     payload.market = normalizeOptionalText(input.market);
   }
-  if ('target_square_feet' in input) {
-    payload.target_square_feet = input.target_square_feet ?? null;
+  if (input.target_square_feet !== undefined) {
+    payload.target_square_feet = input.target_square_feet;
   }
-  if ('notes' in input) {
+  if (input.notes !== undefined) {
     payload.notes = normalizeOptionalText(input.notes);
   }
 
@@ -107,6 +148,8 @@ export async function listDeals(
   organizationId: string,
   signal?: AbortSignal,
 ): Promise<DealRow[]> {
+  assertOrganizationId(organizationId);
+
   const request = supabase
     .from('deals')
     .select(DEAL_COLUMNS)
@@ -115,7 +158,7 @@ export async function listDeals(
 
   const { data, error } = signal ? await request.abortSignal(signal) : await request;
 
-  if (error) throw new DealError(error.message);
+  if (error) throw new DealError(safeErrorMessage(error.code, READ_FALLBACK));
 
   return (data ?? []) as DealRow[];
 }
@@ -129,6 +172,9 @@ export async function getDeal(
   dealId: string,
   signal?: AbortSignal,
 ): Promise<DealRow | null> {
+  assertOrganizationId(organizationId);
+  assertDealId(dealId);
+
   const request = supabase
     .from('deals')
     .select(DEAL_COLUMNS)
@@ -138,7 +184,7 @@ export async function getDeal(
 
   const { data, error } = signal ? await request.abortSignal(signal) : await request;
 
-  if (error) throw new DealError(error.message);
+  if (error) throw new DealError(safeErrorMessage(error.code, READ_FALLBACK));
 
   return (data as DealRow | null) ?? null;
 }
@@ -151,6 +197,8 @@ export async function createDeal(
   organizationId: string,
   input: DealCreateInput,
 ): Promise<DealRow> {
+  assertOrganizationId(organizationId);
+
   const fieldErrors = validateDealCreate(input);
   if (hasFieldErrors(fieldErrors)) {
     throw new DealValidationError(fieldErrors);
@@ -162,7 +210,7 @@ export async function createDeal(
     .select(DEAL_COLUMNS)
     .single();
 
-  if (error) throw new DealError(error.message);
+  if (error) throw new DealError(safeErrorMessage(error.code, WRITE_FALLBACK));
   if (!data) throw new DealError('The deal could not be created.');
 
   return data as DealRow;
@@ -178,6 +226,9 @@ export async function updateDeal(
   dealId: string,
   input: DealUpdateInput,
 ): Promise<DealRow> {
+  assertOrganizationId(organizationId);
+  assertDealId(dealId);
+
   const fieldErrors = validateDealUpdate(input);
   if (hasFieldErrors(fieldErrors)) {
     throw new DealValidationError(fieldErrors);
@@ -196,7 +247,7 @@ export async function updateDeal(
     .select(DEAL_COLUMNS)
     .maybeSingle();
 
-  if (error) throw new DealError(error.message);
+  if (error) throw new DealError(safeErrorMessage(error.code, WRITE_FALLBACK));
   if (!data) throw new DealNotFoundError();
 
   return data as DealRow;

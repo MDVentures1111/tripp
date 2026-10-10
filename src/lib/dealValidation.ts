@@ -8,19 +8,35 @@ import {
   type DealUpdateInput,
 } from '../types/deals';
 
+/** UUID pattern (v1–v5, case-insensitive) used to validate identifiers. */
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True when the value is a syntactically valid UUID string. */
+export const isValidUuid = (value: unknown): value is string =>
+  typeof value === 'string' && UUID_PATTERN.test(value);
+
 /** Field-keyed validation messages keyed by editable business field. */
 export type DealFieldErrors = Partial<Record<DealMutableField, string>>;
 
-/** Returns an error message when a deal name is missing or blank. */
-export const validateDealName = (value: string | null | undefined): string | undefined => {
-  if (value === null || value === undefined || value.trim().length === 0) {
+/**
+ * Returns an error message when a deal name is missing, blank, or not text.
+ * Accepts `unknown` so null, undefined, and non-string runtime values are
+ * rejected safely instead of throwing on `.trim()`.
+ */
+export const validateDealName = (value: unknown): string | undefined => {
+  if (typeof value !== 'string' || value.trim().length === 0) {
     return 'Deal name is required.';
   }
   return undefined;
 };
 
-/** Returns an error message when square footage is present but not positive. */
-export const validateTargetSquareFeet = (value: number | null | undefined): string | undefined => {
+/**
+ * Returns an error message when square footage is present but not a finite,
+ * positive number. Accepts `unknown` so non-numeric runtime values (strings,
+ * booleans, NaN, Infinity) are rejected safely. Absent values pass.
+ */
+export const validateTargetSquareFeet = (value: unknown): string | undefined => {
   if (value === null || value === undefined) {
     return undefined;
   }
@@ -76,7 +92,7 @@ export function validateDealCreate(input: DealCreateInput): DealFieldErrors {
 export function validateDealUpdate(input: DealUpdateInput): DealFieldErrors {
   const errors: DealFieldErrors = {};
 
-  if ('deal_name' in input) {
+  if (input.deal_name !== undefined) {
     const nameError = validateDealName(input.deal_name);
     if (nameError) errors.deal_name = nameError;
   }
@@ -91,7 +107,7 @@ export function validateDealUpdate(input: DealUpdateInput): DealFieldErrors {
     if (statusError) errors.status = statusError;
   }
 
-  if ('target_square_feet' in input) {
+  if (input.target_square_feet !== undefined) {
     const squareFeetError = validateTargetSquareFeet(input.target_square_feet);
     if (squareFeetError) errors.target_square_feet = squareFeetError;
   }
