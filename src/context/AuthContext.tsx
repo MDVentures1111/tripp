@@ -2,7 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
-import { resolveOrganization, type OrganizationResolution } from '../lib/organization';
+import { resolveOrganization, type OrganizationResolution, type MembershipRole } from '../lib/organization';
 import type { User, Session } from '@supabase/supabase-js';
 
 export type AuthorizationState =
@@ -19,6 +19,7 @@ export interface AuthState {
   authState: AuthorizationState;
   resolvedOrgId: string | null;
   resolvedOrgName: string | null;
+  resolvedOrgRole: MembershipRole | null;
   apiError: string | null;
   signOutError: string | null;
   signIn: (email: string, password: string) => Promise<boolean>;
@@ -33,6 +34,7 @@ const AuthContext = createContext<AuthState>({
   authState: 'initializing',
   resolvedOrgId: null,
   resolvedOrgName: null,
+  resolvedOrgRole: null,
   apiError: null,
   signOutError: null,
   signIn: async () => false,
@@ -119,6 +121,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const resolvedOrgId = current?.status === 'authorized' ? current.orgId : null;
   const resolvedOrgName = current?.status === 'authorized' ? current.orgName : null;
+  const resolvedOrgRole = current?.status === 'authorized' ? current.orgRole : null;
   const apiError = current?.status === 'error' ? current.message : signInError;
 
   const signIn = useCallback(async (email: string, password: string): Promise<boolean> => {
@@ -173,6 +176,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         signOutError,
         resolvedOrgId,
         resolvedOrgName,
+        resolvedOrgRole,
         signIn,
         signInWithGoogle,
         signOut,
