@@ -1,7 +1,10 @@
 import { supabase } from './supabase';
 
+export const VALID_ROLES = ['admin', 'member', 'viewer'] as const;
+export type MembershipRole = (typeof VALID_ROLES)[number];
+
 export type OrganizationResolution =
-  | { status: 'authorized'; orgId: string; orgName: string }
+  | { status: 'authorized'; orgId: string; orgName: string; orgRole: MembershipRole }
   | { status: 'restricted' }
   | { status: 'error'; message: string };
 
@@ -15,7 +18,7 @@ export async function resolveOrganization(
 ): Promise<OrganizationResolution> {
   const { data: memberships, error: membershipError } = await supabase
     .from('organization_memberships')
-    .select('organization_id')
+    .select('organization_id, role')
     .eq('user_id', userId)
     .abortSignal(signal);
 
@@ -23,9 +26,13 @@ export async function resolveOrganization(
     return { status: 'error', message: membershipError.message };
   }
 
-  const orgIds: string[] = (memberships ?? [])
-    .map((m: { organization_id: string | null }) => m.organization_id)
-    .filter((id: string | null): id is string => Boolean(id));
+  const validMemberships = (memberships ?? []).filter(
+    (m: { organization_id: string | null; role: unknown }) =>
+      Boolean(m.organization_id) && VALID_ROLES.includes(m.role as MembershipRole)
+  );
+  const orgIds: string[] = validMemberships.map(
+    (m: { organization_id: string | null }) => m.organization_id as string
+  );
 
   if (orgIds.length === 0) {
     return { status: 'restricted' };
@@ -46,5 +53,10 @@ export async function resolveOrganization(
     return { status: 'restricted' };
   }
 
-  return { status: 'authorized', orgId: org.id, orgName: org.name };
+  const membershipRecord = validMemberships.find(
+    (m: { organization_id: string | null }) => m.organization_id === org.id
+  );
+  if (!membershipRecord) return { status: 'restricted' };
+
+  return { status: 'authorized', orgId: org.id, orgName: org.name, orgRole: membershipRecord.role as MembershipRole };
 }
