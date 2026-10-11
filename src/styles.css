@@ -480,3 +480,51 @@ img { max-width: 100%; display: block; }
   .sidebar.open { transform: translateX(0); box-shadow: 4px 0 12px rgba(0,0,0,0.1); }
   .workspace-main { margin-left: 0; padding: 1.5rem; }
 }
+
+/* D03-C2A — scoped tenant-representation Deals presentation */
+.tripp-deals { max-width: 1200px; }
+.tripp-deals-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.5rem; }
+.tripp-deals-header .view-subtitle { margin-bottom: 0; }
+.tripp-deals-upcoming { padding: 0.625rem 0.875rem; border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); color: var(--color-slate-500); font-size: 0.875rem; white-space: nowrap; }
+.tripp-deals-filters { display: flex; gap: 0.75rem; align-items: stretch; flex-wrap: wrap; margin-bottom: 1rem; }
+.tripp-deals-filters select, .tripp-deals-search input { height: 44px; border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-slate-900); padding: 0 0.75rem; max-width: 100%; }
+.tripp-deals-filters select { min-width: 145px; }
+.tripp-deals-search { position: relative; flex: 1 1 250px; min-width: 0; }
+.tripp-deals-search svg { position: absolute; top: 13px; left: 12px; color: var(--color-slate-500); pointer-events: none; }
+.tripp-deals-search input { width: 100%; padding-left: 2.5rem; }
+.tripp-deals-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.tripp-deals-results { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin: 0.75rem 0; color: var(--color-slate-500); font-size: 0.875rem; }
+.tripp-deals-clear { border: none; background: transparent; color: var(--color-primary); font-weight: 600; text-decoration: underline; padding: 0.35rem; }
+.tripp-deals-state { min-height: 210px; padding: 2.5rem 1rem; border: 1px solid var(--color-slate-200); background: var(--color-surface); border-radius: var(--radius-lg); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem; text-align: center; color: var(--color-slate-500); }
+.tripp-deals-state h2 { font-size: 1.15rem; color: var(--color-slate-900); }
+.tripp-deals-state p { margin: 0; max-width: 480px; }
+.tripp-deals-action { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.65rem 1rem; margin-top: 0.5rem; background: var(--color-primary); color: white; border: 0; border-radius: var(--radius-md); font-weight: 600; }
+.tripp-deals-action:hover { background: var(--color-primary-light); }
+.tripp-deals-list { border: 1px solid var(--color-slate-200); border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; box-shadow: var(--shadow-sm); }
+.tripp-deals-list ul { margin: 0; padding: 0; list-style: none; }
+.tripp-deals-list li + li { border-top: 1px solid var(--color-slate-200); }
+.tripp-deals-columns, .tripp-deals-item { display: grid; grid-template-columns: minmax(130px,2fr) minmax(95px,1.4fr) minmax(95px,1fr) minmax(85px,1fr) minmax(95px,1.2fr) minmax(70px,0.85fr) minmax(95px,1fr); align-items: center; gap: 0.75rem; padding: 0.9rem 1rem; }
+.tripp-deals-columns { background: var(--color-slate-100); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.035em; text-transform: uppercase; color: var(--color-slate-700); }
+.tripp-deals-item { color: var(--color-slate-700); font-size: 0.875rem; text-decoration: none; overflow-wrap: anywhere; }
+.tripp-deals-item:hover { background: var(--color-slate-100); }
+.tripp-deals-item:focus-visible, .tripp-deals-action:focus-visible, .tripp-deals-clear:focus-visible, .tripp-deals-filters input:focus-visible, .tripp-deals-filters select:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; }
+.tripp-deals-name { font-weight: 700; color: var(--color-primary); }
+.tripp-deals-status { display: inline-block; padding: 0.25rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700; white-space: nowrap; }
+.tripp-deals-status--active { color: #166534; background: #dcfce7; }
+.tripp-deals-status--on_hold { color: #92400e; background: #fef3c7; }
+.tripp-deals-status--completed { color: #334155; background: #e2e8f0; }
+.tripp-deals-status--cancelled { color: #991b1b; background: #fee2e2; }
+@media (max-width: 1100px) {
+  .tripp-deals-columns { display: none; }
+  .tripp-deals-item { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem 1rem; padding: 1.1rem; }
+  .tripp-deals-item > span { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+  .tripp-deals-item > span::before { content: attr(data-label); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.035em; text-transform: uppercase; color: var(--color-slate-500); }
+}
+@media (max-width: 600px) {
+  .tripp-deals-header { flex-direction: column; }
+  .tripp-deals-upcoming { white-space: normal; }
+  .tripp-deals-filters { flex-direction: column; }
+  .tripp-deals-filters select, .tripp-deals-search { width: 100%; }
+  .tripp-deals-search { flex-basis: auto; }
+  .tripp-deals-item { grid-template-columns: 1fr; }
+}
