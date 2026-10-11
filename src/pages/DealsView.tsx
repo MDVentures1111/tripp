@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BriefcaseBusiness, Search, RefreshCw } from 'lucide-react';
+import { BriefcaseBusiness, Search, RefreshCw, Plus } from 'lucide-react';
+import { CreateDealForm } from './CreateDealForm';
 import { useAuth } from '../context/AuthContext';
 import { listDeals } from '../lib/deals';
 import { canManageDeals } from '../lib/permissions';
@@ -44,6 +45,7 @@ export const DealsView = () => {
   const [statusFilter, setStatusFilter] = useState<DealStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<DealType | 'all'>('all');
   const [search, setSearch] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
     if (!resolvedOrgId) return;
@@ -103,14 +105,18 @@ export const DealsView = () => {
           <h1 className="view-title">Deals</h1>
           <p className="view-subtitle">Tenant-representation opportunities for your organization.</p>
         </div>
-        {canManage && (
-          <span className="tripp-deals-upcoming" aria-label="Deal creation is planned for the next milestone">
-            Create Deal — coming next
-          </span>
+        {resolvedOrgId && canManage && !showCreate && (
+          <button type="button" className="tripp-deals-action" onClick={() => setShowCreate(true)}>
+            <Plus size={17} aria-hidden="true" /> Create Deal
+          </button>
         )}
       </header>
 
-      {resolvedOrgId && (
+      {resolvedOrgId && canManage && showCreate && (
+        <CreateDealForm key={resolvedOrgId} organizationId={resolvedOrgId} onCancel={() => setShowCreate(false)} />
+      )}
+
+      {resolvedOrgId && !showCreate && (
         <div className="tripp-deals-filters" role="search" aria-label="Filter deals">
           <div className="tripp-deals-search">
             <Search size={17} aria-hidden="true" />
@@ -140,7 +146,7 @@ export const DealsView = () => {
         </div>
       )}
 
-      {!resolvedOrgId ? (
+      {resolvedOrgId && canManage && showCreate ? null : !resolvedOrgId ? (
         <section className="tripp-deals-state" role="status">
           <h2>Organization unavailable</h2>
           <p>Deal information is available only after your organization has been authorized.</p>
