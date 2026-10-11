@@ -528,3 +528,31 @@ img { max-width: 100%; display: block; }
   .tripp-deals-search { flex-basis: auto; }
   .tripp-deals-item { grid-template-columns: 1fr; }
 }
+
+
+/* D03-C2B — Create Deal */
+.tripp-create-card { margin-bottom: 1.5rem; padding: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-slate-200); border-top: 3px solid var(--color-accent); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
+.tripp-create-heading { margin-bottom: 1.5rem; }
+.tripp-create-heading h2 { font-size: 1.25rem; color: var(--color-primary); }
+.tripp-create-heading p { color: var(--color-slate-500); margin: 0.35rem 0 0; }
+.tripp-create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem; }
+.tripp-create-field { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.tripp-create-field label { font-size: 0.875rem; font-weight: 650; color: var(--color-slate-700); }
+.tripp-create-field label span { color: #b91c1c; }
+.tripp-create-field input, .tripp-create-field select, .tripp-create-field textarea { width: 100%; padding: 0.75rem; background: white; color: var(--color-slate-900); border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); }
+.tripp-create-field input:focus-visible, .tripp-create-field select:focus-visible, .tripp-create-field textarea:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 1px; }
+.tripp-create-field [aria-invalid="true"] { border-color: #b91c1c; }
+.tripp-create-field :disabled { opacity: 0.65; cursor: not-allowed; }
+.tripp-create-full { grid-column: 1 / -1; }
+.tripp-create-error { color: #b91c1c; font-size: 0.8rem; }
+.tripp-create-submit-error { margin-top: 1rem; padding: 0.75rem; border: 1px solid #fecaca; border-radius: var(--radius-md); background: #fef2f2; color: #991b1b; }
+.tripp-create-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
+.tripp-create-actions .tripp-deals-action { margin-top: 0; }
+.tripp-create-cancel { padding: 0.65rem 1rem; background: white; color: var(--color-slate-700); border: 1px solid var(--color-slate-200); border-radius: var(--radius-md); font-weight: 600; }
+.tripp-create-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+.tripp-create-cancel:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; }
+@media (max-width: 600px) {
+  .tripp-create-card { padding: 1rem; }
+  .tripp-create-grid { grid-template-columns: 1fr; }
+  .tripp-create-actions { flex-wrap: wrap; }
+}
