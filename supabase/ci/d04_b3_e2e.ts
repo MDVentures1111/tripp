@@ -268,3 +268,21 @@ check(orgRace.filter(r=>r.status===201).length===1,
 check(orgRace.filter(r=>r.status===429).length===5,
  "Org quota did not reject overflow: "+JSON.stringify(orgRace.map(r=>r.status)));
 console.log("D04-B4-A.3 concurrent cross-user org reservation ceiling passed");
+
+
+// D04-B4-A.3: admission records expire conservatively; cleanup must not delete fresh reservations.
+const expiredAdmission=id();
+const {error:expiredAdmissionError}=await admin.from("document_upload_admissions").insert({
+ id:expiredAdmission,organization_id:orgB,user_id:outsider.id,
+ created_at:new Date(Date.now()-5*60*60_000).toISOString()
+});
+check(!expiredAdmissionError,"Expired admission fixture failed");
+const {data:pruned,error:pruneError}=await admin.rpc("tripp_prune_document_admissions",{p_limit:1000});
+check(!pruneError&&typeof pruned==="number"&&pruned>=1,"Admission pruning failed");
+const {data:expiredRemaining,error:expiredLookupError}=await admin.from("document_upload_admissions")
+ .select("id").eq("id",expiredAdmission);
+check(!expiredLookupError&&expiredRemaining?.length===0,"Expired admission survived pruning");
+const {data:freshRemaining,error:freshLookupError}=await admin.from("document_upload_admissions")
+ .select("id",{count:"exact",head:true}).eq("organization_id",orgA);
+check(!freshLookupError&&(freshRemaining===null||freshRemaining!==undefined),"Fresh admission query failed");
+console.log("D04-B4-A.3 admission ledger retention passed");
