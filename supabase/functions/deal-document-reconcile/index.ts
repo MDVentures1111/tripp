@@ -1,3 +1,4 @@
+import { auditDocumentEvent } from "../_shared/document-audit.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { validatePdf, validateDocx, MAX_DOCUMENT_BYTES } from "../_shared/file-validation.ts";
 
@@ -80,5 +81,8 @@ Deno.serve(async (req) => {
     const { error } = await admin.storage.from(BUCKET).remove([quarantine]);
     results.push({ id: d.id, outcome: error ? "quarantine_cleanup_failed" : "quarantine_cleanup_attempted" });
   }
+  auditDocumentEvent("reconciler_run",{outcome:"completed",status:200,reason:
+    "scanned="+((processing?.length??0)+(abandoned?.length??0)+(stale?.length??0))+
+    ";processed="+results.length+";deferred="+results.filter(r=>r.outcome==="budget_deferred").length});
   return respond(200, { scanned: (processing?.length ?? 0) + (abandoned?.length ?? 0) + (stale?.length ?? 0), results });
 });
