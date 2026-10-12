@@ -44,6 +44,10 @@ jobs:
         run: supabase --version
       - name: Check local stack prerequisites
         run: docker --version
+      - name: Prepare CI-only schema prerequisites
+        run: |
+          mkdir -p supabase/migrations
+          cp supabase/ci/bootstrap_organizations.sql supabase/migrations/20261009000000_ci_bootstrap_organizations.sql
       - name: Start isolated local Supabase stack
         run: supabase start --exclude studio,imgproxy,logflare,vector,supavisor
       - name: Show local stack status
