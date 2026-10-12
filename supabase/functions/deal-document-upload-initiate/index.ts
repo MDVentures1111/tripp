@@ -39,12 +39,13 @@ Deno.serve(async (req) => {
       uploaded_by: scope.userId, upload_status: "pending",
     });
     if (insertError) return json(req, { error: "Unable to prepare upload." }, 503);
-    // Service role signs the exact generated object path. Token must be treated as a short-lived bearer secret.
-    const { data, error } = await scope.admin.storage.from("tripp-deal-documents").createSignedUploadUrl(path);
+    // Upload credentials target quarantine only; never the verified source path.
+    const stagingPath = `${scope.orgId}/${scope.dealId}/${documentId}/quarantine.${kind.ext}`;
+    const { data, error } = await scope.admin.storage.from("tripp-deal-documents").createSignedUploadUrl(stagingPath);
     if (error || !data) {
       await scope.admin.from("deal_documents").update({ upload_status: "failed" }).eq("id", documentId).eq("upload_status", "pending");
       return json(req, { error: "Upload transport unavailable." }, 503);
     }
-    return json(req, { documentId, path, uploadToken: data.token, uploadUrl: data.signedUrl, mimeType: kind.mime, expiresInSeconds: 7200 }, 201);
+    return json(req, { documentId, uploadToken: data.token, uploadUrl: data.signedUrl, mimeType: kind.mime, expiresInSeconds: 7200 }, 201);
   } catch { return json(req, { error: "Unexpected server error." }, 500); }
 });
