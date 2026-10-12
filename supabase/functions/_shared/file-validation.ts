@@ -7,7 +7,12 @@ const u32 = (b: Uint8Array, p: number) => (b[p] + b[p+1]*256 + b[p+2]*65536 + b[
 export function validatePdf(b: Uint8Array): boolean {
   if (b.length < 16 || b.length > MAX_DOCUMENT_BYTES || ascii(b.subarray(0,5)) !== "%PDF-") return false;
   const end = ascii(b.subarray(Math.max(0,b.length-2048)));
-  return /%%EOF\s*$/.test(end);
+  if (!/%%EOF\\s*$/.test(end)) return false;
+  // Conservative defense-in-depth: reject recognizable active PDF features.
+  // This does not inspect compressed streams or certify malware safety.
+  const source = ascii(b);
+  if (/\\/(?:JavaScript|JS|OpenAction|AA|Launch|EmbeddedFile|RichMedia|XFA|AcroForm)\\b/i.test(source)) return false;
+  return true;
 }
 /** Reject ZIP64, encryption, traversal, duplicates, macros and oversized ZIP entries. */
 export function validateDocx(b: Uint8Array): boolean {
