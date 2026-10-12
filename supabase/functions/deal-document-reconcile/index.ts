@@ -15,6 +15,9 @@ Deno.serve(async (req) => {
   const url = Deno.env.get("SUPABASE_URL"), key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key) return respond(503, { error: "Missing configuration" });
   const admin = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const deadline = Date.now()+45_000;
+  let downloadBudget=100*1024*1024;
+  const withinBudget=()=>Date.now()<deadline;
   const cutoff = new Date(Date.now() - 12 * 60_000).toISOString();
   const pendingCutoff = new Date(Date.now() - 3 * 60 * 60_000).toISOString();
   const { data: processing, error: queryError } = await admin.from("deal_documents")
@@ -23,6 +26,8 @@ Deno.serve(async (req) => {
   if (queryError) return respond(503, { error: "Query failed" });
   const results: Array<{ id: string; outcome: string }> = [];
   for (const d of processing ?? []) {
+    if(!withinBudget() || downloadBudget<d.file_size_bytes){results.push({id:d.id,outcome:"budget_deferred"});break;}
+    downloadBudget-=d.file_size_bytes;
     const token = crypto.randomUUID();
     const { data: claimed, error: claimError } = await admin.rpc("tripp_claim_stale_document", { p_id: d.id, p_token: token });
     if (claimError || !claimed) { results.push({ id: d.id, outcome: "claim_skipped" }); continue; }
@@ -57,6 +62,7 @@ Deno.serve(async (req) => {
     .select("id").eq("upload_status", "pending").lt("created_at", pendingCutoff).limit(25);
   if (pendingError) return respond(503, { error: "Pending query failed", results });
   for (const d of abandoned ?? []) {
+    if(!withinBudget()) break;
     const { data: failed, error } = await admin.rpc("tripp_fail_abandoned_pending", { p_id: d.id });
     results.push({ id: d.id, outcome: !error && failed ? "abandoned_failed" : "abandoned_skipped" });
   }
@@ -66,6 +72,7 @@ Deno.serve(async (req) => {
     .in("upload_status", ["ready", "failed"]).lt("created_at", retentionCutoff).limit(25);
   if (staleError) return respond(503, { error: "Cleanup query failed", results });
   for (const d of stale ?? []) {
+    if(!withinBudget()) break;
     const ext = d.mime_type === "application/pdf" ? "pdf" :
       d.mime_type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ? "docx" : null;
     if (!ext || !UUID.test(d.id) || !UUID.test(d.organization_id) || !UUID.test(d.deal_id)) continue;
