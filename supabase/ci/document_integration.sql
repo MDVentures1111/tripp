@@ -127,6 +127,12 @@ BEGIN
  THEN RAISE EXCEPTION 'Recovery status incorrect'; END IF;
 END $$;
 
+DO $
+BEGIN
+ IF NOT public.tripp_admit_document_upload(gen_random_uuid(),
+ '20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001')
+ THEN RAISE EXCEPTION 'Admission rejected'; END IF;
+END $;
 RESET ROLE;
 ROLLBACK;
 \echo 'CI integration assertions passed'
