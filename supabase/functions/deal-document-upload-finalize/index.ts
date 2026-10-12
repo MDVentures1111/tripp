@@ -55,6 +55,9 @@ Deno.serve(async (req) => {
       await finish(false);
       return json(req, { error: "Document content failed validation." }, 422);
     }
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))).map(v=>v.toString(16).padStart(2,'0')).join('');
+    const { data: bound, error: bindError } = await scope.admin.rpc('tripp_bind_document_digest', { p_id: doc.id, p_token: claimToken, p_digest: digest });
+    if (bindError || !bound) return json(req, { error: 'Unable to bind document integrity; reconciliation required.' }, 503);
     // Recheck ownership immediately before promotion. This is a fencing check, not a cross-service transaction.
     const { data: leaseValid, error: leaseError } = await scope.admin.rpc("tripp_document_finalize_lease_valid", {
       p_id: doc.id, p_token: claimToken,
