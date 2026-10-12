@@ -49,8 +49,8 @@ Deno.serve(async (req) => {
     await admin.storage.from(BUCKET).remove([quarantine]);
     results.push({ id: d.id, outcome: "recovered_ready" });
   }
-  // Pending cleanup is intentionally metadata-only. Quarantine may still be reachable
-  // by a signed token; a separate verified retention policy must remove it safely.
+  // Expired pending records are failed atomically. Quarantine removal is deferred
+  // until signed-upload tokens have expired, to avoid racing an active upload.
   const { data: abandoned, error: pendingError } = await admin.from("deal_documents")
     .select("id").eq("upload_status", "pending").lt("created_at", pendingCutoff).limit(25);
   if (pendingError) return respond(503, { error: "Pending query failed", results });
@@ -58,5 +58,18 @@ Deno.serve(async (req) => {
     const { data: failed, error } = await admin.rpc("tripp_fail_abandoned_pending", { p_id: d.id });
     results.push({ id: d.id, outcome: !error && failed ? "abandoned_failed" : "abandoned_skipped" });
   }
-  return respond(200, { scanned: (processing?.length ?? 0) + (abandoned?.length ?? 0), results });
+  const retentionCutoff = new Date(Date.now() - 4 * 60 * 60_000).toISOString();
+  const { data: stale, error: staleError } = await admin.from("deal_documents")
+    .select("id,organization_id,deal_id,mime_type,upload_status")
+    .in("upload_status", ["ready", "failed"]).lt("created_at", retentionCutoff).limit(25);
+  if (staleError) return respond(503, { error: "Cleanup query failed", results });
+  for (const d of stale ?? []) {
+    const ext = d.mime_type === "application/pdf" ? "pdf" :
+      d.mime_type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ? "docx" : null;
+    if (!ext || !UUID.test(d.id) || !UUID.test(d.organization_id) || !UUID.test(d.deal_id)) continue;
+    const quarantine = `${d.organization_id}/${d.deal_id}/${d.id}/quarantine.${ext}`;
+    const { error } = await admin.storage.from(BUCKET).remove([quarantine]);
+    results.push({ id: d.id, outcome: error ? "quarantine_cleanup_failed" : "quarantine_cleanup_attempted" });
+  }
+  return respond(200, { scanned: (processing?.length ?? 0) + (abandoned?.length ?? 0) + (stale?.length ?? 0), results });
 });
