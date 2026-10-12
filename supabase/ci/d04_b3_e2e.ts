@@ -116,3 +116,35 @@ check(!!directWrite.error,"Anonymous Storage overwrite unexpectedly succeeded");
 const outsiderFinalize=await invoke("upload-finalize",outsider.token,{...body,documentId:missing.documentId});
 check(outsiderFinalize.status===404,"Cross-org finalize not denied");
 console.log("D04-B3.2 malformed PDF, mismatched size, interrupted upload, replay and overwrite checks passed");
+
+
+// D04-B3.3: concurrent finalize must have one winner, never two promotions.
+const racing=await initiate(pdf,"race.pdf");
+await uploadQuarantine(racing,pdf);
+const raceBody={...body,documentId:racing.documentId};
+const raceResults=await Promise.all(Array.from({length:5},()=>invoke("upload-finalize",owner.token,raceBody)));
+check(raceResults.filter(r=>r.status===200).length===1,
+ `Concurrent finalize expected exactly one success: ${JSON.stringify(raceResults)}`);
+check(raceResults.every(r=>r.status===200||r.status===404||r.status===409),
+ `Concurrent finalize unexpected error: ${JSON.stringify(raceResults)}`);
+check(await status(racing.documentId)==="ready","Concurrent finalize did not leave ready source");
+const {data:raceSource,error:raceReadError}=await admin.storage.from(bucket).download(`${orgA}/${dealA}/${racing.documentId}/source.pdf`);
+check(!raceReadError&&raceSource?.size===pdf.length,"Concurrent finalization corrupted source");
+
+// DOCX with fake ZIP signatures but no valid central directory must never be promoted.
+const fakeDocx=new Uint8Array(128);
+fakeDocx.set(new TextEncoder().encode("PK\\u0003\\u0004"),0);
+const invalidDocx=await initiate(fakeDocx,"malformed.docx","docx");
+await uploadQuarantine(invalidDocx,fakeDocx,"docx");
+const docxResult=await invoke("upload-finalize",owner.token,{...body,documentId:invalidDocx.documentId});
+check(docxResult.status===422,`Malformed DOCX accepted: ${JSON.stringify(docxResult)}`);
+check(await status(invalidDocx.documentId)==="failed","Malformed DOCX did not fail closed");
+check((await invoke("download",owner.token,{...body,documentId:invalidDocx.documentId})).status===404,
+ "Malformed DOCX is downloadable");
+
+// Reconciler must reject ordinary user credentials even when called from local CI.
+const reconcile=await fetch(base+"/functions/v1/deal-document-reconcile",{
+ method:"POST",headers:{apikey:anon,authorization:"Bearer "+owner.token,"content-type":"application/json"},body:"{}"
+});
+check(reconcile.status===401,`Reconciler accepted a browser JWT: ${reconcile.status}`);
+console.log("D04-B3.3 concurrent finalization, malformed DOCX and reconciler auth passed");
