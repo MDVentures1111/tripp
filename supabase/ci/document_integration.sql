@@ -83,6 +83,8 @@ BEGIN
  '50000000-0000-4000-8000-000000000002',true) THEN RAISE EXCEPTION 'Wrong token accepted'; END IF;
  IF NOT public.tripp_document_finalize_lease_valid('40000000-0000-4000-8000-000000000001',token)
  THEN RAISE EXCEPTION 'Lease invalid'; END IF;
+ IF NOT public.tripp_bind_document_digest('40000000-0000-4000-8000-000000000001',token,repeat('a',64))
+ THEN RAISE EXCEPTION 'Digest binding failed'; END IF;
  IF NOT public.tripp_finish_document_finalize('40000000-0000-4000-8000-000000000001',token,true)
  THEN RAISE EXCEPTION 'Finalize failed'; END IF;
  IF public.tripp_finish_document_finalize('40000000-0000-4000-8000-000000000001',token,false)
