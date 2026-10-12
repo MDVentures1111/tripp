@@ -51,6 +51,7 @@ Deno.serve(async (req) => {
     const { data, error } = await scope.admin.storage.from("tripp-deal-documents").createSignedUploadUrl(stagingPath);
     if (error || !data) {
       await scope.admin.from("deal_documents").update({ upload_status: "failed" }).eq("id", documentId).eq("upload_status", "pending");
+      auditDocumentEvent("upload_initiate",{organizationId:scope.orgId,userId:scope.userId,documentId,outcome:"error",status:503,reason:"signed_upload_unavailable"});
       return json(req, { error: "Upload transport unavailable." }, 503);
     }
     auditDocumentEvent("upload_initiate",{organizationId:scope.orgId,userId:scope.userId,documentId,outcome:"issued",status:201});
