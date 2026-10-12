@@ -1,4 +1,5 @@
 import { auditDocumentEvent } from "../_shared/document-audit.ts";
+import { boundedReconcilerFetch } from "../_shared/reconciler-transport.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { validatePdf, validateDocx, MAX_DOCUMENT_BYTES } from "../_shared/file-validation.ts";
 
@@ -15,7 +16,7 @@ Deno.serve(async (req) => {
     return respond(503, { error: "Reconciler disabled pending verification" });
   const url = Deno.env.get("SUPABASE_URL"), key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key) return respond(503, { error: "Missing configuration" });
-  const admin = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10000) }) } });
+  const admin = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: boundedReconcilerFetch } });
   const deadline = Date.now()+45_000;
   let downloadBudget=100*1024*1024;
   const withinBudget=()=>Date.now()<deadline;
