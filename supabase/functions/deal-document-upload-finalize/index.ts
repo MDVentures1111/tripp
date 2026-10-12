@@ -55,6 +55,11 @@ Deno.serve(async (req) => {
       await finish(false);
       return json(req, { error: "Document content failed validation." }, 422);
     }
+    // Recheck ownership immediately before promotion. This is a fencing check, not a cross-service transaction.
+    const { data: leaseValid, error: leaseError } = await scope.admin.rpc("tripp_document_finalize_lease_valid", {
+      p_id: doc.id, p_token: claimToken,
+    });
+    if (leaseError || !leaseValid) return json(req, { error: "Finalization lease expired; reconciliation required." }, 409);
     // Copy only validated bytes to the final path; never overwrite an existing source.
     const { error: promoteError } = await scope.admin.storage.from(BUCKET).upload(doc.storage_path, bytes, {
       contentType: doc.mime_type, upsert: false,
