@@ -52,6 +52,9 @@ jobs:
         run: supabase start --exclude studio,imgproxy,logflare,vector,supavisor
       - name: Show local stack status
         run: supabase status
+      - name: Run database authorization and lifecycle integration tests
+        run: |
+          docker exec -i supabase_db_tripp psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/ci/document_integration.sql
       - name: Shut down isolated stack
         if: always()
         run: supabase stop --no-backup
