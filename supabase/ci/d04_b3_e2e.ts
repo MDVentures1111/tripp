@@ -102,7 +102,15 @@ check(await status(missing.documentId)==="failed","Missing upload did not enter 
 const replay=await invoke("upload-finalize",owner.token,body);
 check(replay.status===404||replay.status===409,"Completed document could be finalized twice");
 const overwrite=await publicClient.storage.from(bucket).uploadToSignedUrl(staging,init.data.uploadToken,pdf,{contentType:"application/pdf"});
-check(!!overwrite.error,"Signed quarantine upload replay/overwrite unexpectedly succeeded");
+// Supabase signed-upload tokens may be reusable until expiry. Replay must never alter verified source.
+console.log("D04-B3.2 quarantine token replay",JSON.stringify({accepted:!overwrite.error,error:overwrite.error?.message}));
+const {data:verifiedSource,error:verifiedReadError}=await admin.storage.from(bucket).download(`${orgA}/${dealA}/${documentId}/source.pdf`);
+check(!verifiedReadError&&!!verifiedSource,"Verified source unavailable after quarantine replay");
+const verifiedBytes=new Uint8Array(await verifiedSource.arrayBuffer());
+check(verifiedBytes.length===pdf.length&&verifiedBytes.every((v,i)=>v===pdf[i]),"Quarantine replay changed verified source");
+check(await status(documentId)==="ready","Quarantine replay changed document readiness");
+const replayFinalize=await invoke("upload-finalize",owner.token,body);
+check(replayFinalize.status===404||replayFinalize.status===409,"Quarantine replay reopened finalization");
 const directWrite=await publicClient.storage.from(bucket).upload(`${orgA}/${dealA}/${documentId}/source.pdf`,pdf,{upsert:true});
 check(!!directWrite.error,"Anonymous Storage overwrite unexpectedly succeeded");
 const outsiderFinalize=await invoke("upload-finalize",outsider.token,{...body,documentId:missing.documentId});
