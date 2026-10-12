@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
   // until signed-upload tokens have expired, to avoid racing an active upload.
   const { data: abandoned, error: pendingError } = await admin.from("deal_documents")
     .select("id").eq("upload_status", "pending").lt("created_at", pendingCutoff).limit(25);
-  if (pendingError) return respond(503, { error: "Pending query failed", results });
+  if (pendingError) { auditDocumentEvent("reconciler_run",{outcome:"error",status:503,reason:"pending_query_failed"}); return respond(503, { error: "Pending query failed", results }); }
   for (const d of abandoned ?? []) {
     if(!withinBudget()) break;
     const { data: failed, error } = await admin.rpc("tripp_fail_abandoned_pending", { p_id: d.id });
@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
   const { data: stale, error: staleError } = await admin.from("deal_documents")
     .select("id,organization_id,deal_id,mime_type,upload_status")
     .in("upload_status", ["ready", "failed"]).lt("created_at", retentionCutoff).limit(25);
-  if (staleError) return respond(503, { error: "Cleanup query failed", results });
+  if (staleError) { auditDocumentEvent("reconciler_run",{outcome:"error",status:503,reason:"cleanup_query_failed"}); return respond(503, { error: "Cleanup query failed", results }); }
   for (const d of stale ?? []) {
     if(!withinBudget()) break;
     const ext = d.mime_type === "application/pdf" ? "pdf" :
