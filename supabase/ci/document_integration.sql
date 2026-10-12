@@ -127,6 +127,17 @@ BEGIN
  THEN RAISE EXCEPTION 'Recovery status incorrect'; END IF;
 END $$;
 
+-- B4-A.3: unauthorized callers cannot invoke the privileged cleanup RPC.
+SET LOCAL ROLE authenticated;
+DO $check$
+BEGIN
+ IF has_function_privilege('authenticated','public.tripp_prune_document_admissions(integer)','EXECUTE')
+ THEN RAISE EXCEPTION 'Authenticated role unexpectedly granted admission pruning'; END IF;
+ IF has_function_privilege('anon','public.tripp_prune_document_admissions(integer)','EXECUTE')
+ THEN RAISE EXCEPTION 'Anonymous role unexpectedly granted admission pruning'; END IF;
+END $check$;
+RESET ROLE;
+SET LOCAL ROLE service_role;
 -- B4-A.3: pruning is bounded, and fresh admission records survive.
 SELECT 1 / CASE WHEN public.tripp_prune_document_admissions(1000) = 0 THEN 1 ELSE 0 END AS prune_fresh_assertion;
 -- A zero denominator fails CI if admission is unexpectedly rejected.
