@@ -24,6 +24,9 @@ Deno.serve(async (req) => {
       b.filename.length > 255 || !b.filename.trim() || /[\\/\x00-\x1f\x7f]/.test(b.filename) ||
       !b.filename.toLowerCase().endsWith("." + kind.ext))
     return json(req, { error: "Unsupported or invalid file." }, 400);
+  // Fail closed until signed-upload overwrite and restrictive-RLS behavior are tested.
+  if (Deno.env.get("TRIPP_ENABLE_DOCUMENT_UPLOADS") !== "verified")
+    return json(req, { error: "Document uploads are not yet enabled." }, 503);
   try {
     const scope = await authorize(req, b.organizationId, b.dealId, true);
     if (scope instanceof Response) return scope;
