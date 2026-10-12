@@ -179,6 +179,9 @@ const {data:leaseClaimed,error:leaseClaimError}=await admin.rpc("tripp_claim_doc
  p_id:recovering.documentId,p_org:orgA,p_deal:dealA,p_user:owner.id,p_token:leaseToken
 });
 check(!leaseClaimError&&leaseClaimed,"Prepare recovery processing lease failed");
+const digest=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",pdf))).map(v=>v.toString(16).padStart(2,"0")).join("");
+const {data:digestBound,error:digestError}=await admin.rpc("tripp_bind_document_digest",{p_id:recovering.documentId,p_token:leaseToken,p_digest:digest});
+check(!digestError&&digestBound,"Recovery digest binding failed");
 const expiredTime=new Date(Date.now()-20*60_000).toISOString();
 const {error:expiredError}=await admin.from("deal_documents").update({finalize_lease_until:expiredTime}).eq("id",recovering.documentId);
 check(!expiredError,`Expire recovery lease: ${expiredError?.message}`);
