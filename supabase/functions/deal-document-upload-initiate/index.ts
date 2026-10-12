@@ -1,3 +1,4 @@
+import { auditDocumentEvent } from "../_shared/document-audit.ts";
 import { authorize, json, preflight, readJsonBody } from "../_shared/documents.ts";
 
 const MAX = 20_971_520;
@@ -35,8 +36,8 @@ Deno.serve(async (req) => {
     const {data:admitted,error:admissionError}=await scope.admin.rpc("tripp_admit_document_upload",{
       p_id:documentId,p_org:scope.orgId,p_user:scope.userId,
     });
-    if(admissionError) return json(req,{error:"Upload admission unavailable."},503);
-    if(!admitted) return json(req,{error:"Upload quota exceeded. Try again later."},429);
+    if(admissionError) { auditDocumentEvent("upload_admission",{organizationId:scope.orgId,userId:scope.userId,outcome:"error",status:503,reason:"admission_rpc_failed"}); return json(req,{error:"Upload admission unavailable."},503); }
+    if(!admitted) { auditDocumentEvent("upload_admission",{organizationId:scope.orgId,userId:scope.userId,outcome:"denied",status:429,reason:"quota_exceeded"}); return json(req,{error:"Upload quota exceeded. Try again later."},429); }
 
     const { error: insertError } = await scope.admin.from("deal_documents").insert({
       id: documentId, organization_id: scope.orgId, deal_id: scope.dealId,
@@ -44,7 +45,7 @@ Deno.serve(async (req) => {
       storage_path: path, mime_type: kind.mime, file_size_bytes: b.fileSizeBytes,
       uploaded_by: scope.userId, upload_status: "pending",
     });
-    if (insertError) return json(req, { error: "Unable to prepare upload." }, 503);
+    if (insertError) { auditDocumentEvent("upload_initiate",{organizationId:scope.orgId,userId:scope.userId,documentId,outcome:"error",status:503,reason:"metadata_insert_failed"}); return json(req, { error: "Unable to prepare upload." }, 503); }
     // Upload credentials target quarantine only; never the verified source path.
     const stagingPath = `${scope.orgId}/${scope.dealId}/${documentId}/quarantine.${kind.ext}`;
     const { data, error } = await scope.admin.storage.from("tripp-deal-documents").createSignedUploadUrl(stagingPath);
@@ -52,6 +53,7 @@ Deno.serve(async (req) => {
       await scope.admin.from("deal_documents").update({ upload_status: "failed" }).eq("id", documentId).eq("upload_status", "pending");
       return json(req, { error: "Upload transport unavailable." }, 503);
     }
+    auditDocumentEvent("upload_initiate",{organizationId:scope.orgId,userId:scope.userId,documentId,outcome:"issued",status:201});
     return json(req, { documentId, uploadToken: data.token, uploadUrl: data.signedUrl, mimeType: kind.mime, expiresInSeconds: 7200 }, 201);
   } catch { return json(req, { error: "Unexpected server error." }, 500); }
 });
