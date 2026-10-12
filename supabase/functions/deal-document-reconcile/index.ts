@@ -50,6 +50,9 @@ Deno.serve(async (req) => {
     if (!valid) { results.push({ id: d.id, outcome: "validation_failed_manual_review" }); continue; }
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(v=>v.toString(16).padStart(2,'0')).join('');
     if (!d.verified_sha256 || d.verified_sha256 !== digest) { results.push({id:d.id,outcome:'digest_mismatch_manual_review'}); continue; }
+    // Recovery cannot mark READY without persisted clean scan evidence.
+    const { data: scanRecord } = await admin.from("deal_documents").select("malware_scan_sha256").eq("id",d.id).single();
+    if (scanRecord?.malware_scan_sha256 !== digest) { results.push({id:d.id,outcome:"scan_evidence_missing"}); continue; }
     const { data: finished, error: finishError } = await admin.rpc("tripp_finish_document_finalize", {
       p_id: d.id, p_token: token, p_success: true,
     });
