@@ -63,3 +63,48 @@ check(download.status===200&&typeof download.data.url==="string","Viewer downloa
 const {error:directError}=await publicClient.storage.from(bucket).download(`${orgA}/${dealA}/${documentId}/source.pdf`);
 check(!!directError,"Anonymous direct Storage download unexpectedly permitted");
 console.log("D04-B3 local HTTP authorization, signed upload, finalize, and download passed");
+
+
+// D04-B3.2 adversarial scenarios, all against ephemeral local Storage and database.
+async function initiate(bytes:Uint8Array,filename="adversarial.pdf",fileKind="pdf"){
+ const response=await invoke("upload-initiate",owner.token,{...input,filename,fileKind,fileSizeBytes:bytes.length});
+ check(response.status===201,`Adversarial initiate failed: ${response.status} ${JSON.stringify(response.data)}`);
+ return {documentId:response.data.documentId as string,token:response.data.uploadToken as string};
+}
+async function uploadQuarantine(doc:{documentId:string,token:string},bytes:Uint8Array,ext="pdf"){
+ const path=`${orgA}/${dealA}/${doc.documentId}/quarantine.${ext}`;
+ const result=await publicClient.storage.from(bucket).uploadToSignedUrl(path,doc.token,bytes,{contentType:ext==="pdf"?"application/pdf":"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+ check(!result.error,`Adversarial quarantine upload failed: ${result.error?.message}`);
+ return path;
+}
+async function status(documentId:string){
+ const {data,error}=await admin.from("deal_documents").select("upload_status").eq("id",documentId).single();
+ check(!error&&!!data,`Document status unavailable: ${error?.message}`);
+ return data.upload_status as string;
+}
+const malformed=new TextEncoder().encode("%PDF-1.4\\ninvalid content without EOF");
+const bad=await initiate(malformed);
+await uploadQuarantine(bad,malformed);
+const badFinalize=await invoke("upload-finalize",owner.token,{...body,documentId:bad.documentId});
+check(badFinalize.status===422,`Malformed PDF not rejected: ${badFinalize.status}`);
+check(await status(bad.documentId)==="failed","Malformed PDF did not fail closed");
+const badDownload=await invoke("download",owner.token,{...body,documentId:bad.documentId});
+check(badDownload.status===404,"Rejected PDF is downloadable");
+const wrongSize=await initiate(pdf);
+await uploadQuarantine(wrongSize,new TextEncoder().encode("%PDF-1.4\\n%%EOF\\nextra"));
+const mismatch=await invoke("upload-finalize",owner.token,{...body,documentId:wrongSize.documentId});
+check(mismatch.status===422,`File size mismatch not rejected: ${mismatch.status}`);
+check(await status(wrongSize.documentId)==="failed","Size mismatch did not fail closed");
+const missing=await initiate(pdf);
+const missingResult=await invoke("upload-finalize",owner.token,{...body,documentId:missing.documentId});
+check(missingResult.status===409,"Missing quarantine object did not reject finalization");
+check(await status(missing.documentId)==="failed","Missing upload did not enter failed state");
+const replay=await invoke("upload-finalize",owner.token,body);
+check(replay.status===404||replay.status===409,"Completed document could be finalized twice");
+const overwrite=await publicClient.storage.from(bucket).uploadToSignedUrl(staging,init.data.uploadToken,pdf,{contentType:"application/pdf"});
+check(!!overwrite.error,"Signed quarantine upload replay/overwrite unexpectedly succeeded");
+const directWrite=await publicClient.storage.from(bucket).upload(`${orgA}/${dealA}/${documentId}/source.pdf`,pdf,{upsert:true});
+check(!!directWrite.error,"Anonymous Storage overwrite unexpectedly succeeded");
+const outsiderFinalize=await invoke("upload-finalize",outsider.token,{...body,documentId:missing.documentId});
+check(outsiderFinalize.status===404,"Cross-org finalize not denied");
+console.log("D04-B3.2 malformed PDF, mismatched size, interrupted upload, replay and overwrite checks passed");
