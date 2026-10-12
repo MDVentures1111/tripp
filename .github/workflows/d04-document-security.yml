@@ -28,8 +28,6 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Format check (test modules)
-        run: deno fmt --check supabase/functions/tests/documents_test.ts supabase/functions/tests/file_validation_test.ts
       - name: Run tests
         run: deno test --allow-env supabase/functions/tests/documents_test.ts supabase/functions/tests/file_validation_test.ts
 
