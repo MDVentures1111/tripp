@@ -27,29 +27,44 @@ Deno.serve(async (req) => {
       doc.mime_type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ? "docx" : null;
     if (!ext || doc.storage_path !== `${scope.orgId}/${scope.dealId}/${doc.id}/source.${ext}`)
       return json(req, { error: "Document unavailable." }, 503);
+    const claimToken = crypto.randomUUID();
+    const { data: claimed, error: claimError } = await scope.admin.rpc("tripp_claim_document_finalize", {
+      p_id: doc.id, p_org: scope.orgId, p_deal: scope.dealId, p_user: scope.userId, p_token: claimToken,
+    });
+    if (claimError) return json(req, { error: "Finalization unavailable." }, 503);
+    if (!claimed) return json(req, { error: "Document finalization already in progress." }, 409);
+    const finish = async (success: boolean) => scope.admin.rpc("tripp_finish_document_finalize", {
+      p_id: doc.id, p_token: claimToken, p_success: success,
+    });
     // The signed upload token only grants access to quarantine, never to the immutable final object.
     const quarantinePath = `${scope.orgId}/${scope.dealId}/${doc.id}/quarantine.${ext}`;
     const { data: object, error: objectError } = await scope.admin.storage.from(BUCKET).download(quarantinePath);
-    if (objectError || !object) return json(req, { error: "Upload not complete." }, 409);
-    if (object.size > MAX_DOCUMENT_BYTES) return json(req, { error: "Document exceeds size limit." }, 422);
+    if (objectError || !object) {
+      await finish(false);
+      return json(req, { error: "Upload not complete; start a new upload." }, 409);
+    }
+    if (object.size > MAX_DOCUMENT_BYTES) {
+      await finish(false);
+      return json(req, { error: "Document exceeds size limit." }, 422);
+    }
     const bytes = new Uint8Array(await object.arrayBuffer());
     const valid = bytes.length === doc.file_size_bytes && bytes.length <= MAX_DOCUMENT_BYTES &&
       (ext === "pdf" ? validatePdf(bytes) : validateDocx(bytes));
     if (!valid) {
       await scope.admin.storage.from(BUCKET).remove([quarantinePath]);
-      await scope.admin.from("deal_documents").update({ upload_status: "failed" })
-        .eq("id", doc.id).eq("upload_status", "pending");
+      await finish(false);
       return json(req, { error: "Document content failed validation." }, 422);
     }
     // Copy only validated bytes to the final path; never overwrite an existing source.
     const { error: promoteError } = await scope.admin.storage.from(BUCKET).upload(doc.storage_path, bytes, {
       contentType: doc.mime_type, upsert: false,
     });
-    if (promoteError) return json(req, { error: "Unable to promote verified document." }, 503);
-    const { data: updated, error: updateError } = await scope.admin.from("deal_documents")
-      .update({ upload_status: "ready" }).eq("id", doc.id).eq("upload_status", "pending")
-      .select("id, upload_status").maybeSingle();
-    if (updateError || !updated) return json(req, { error: "Unable to finalize upload; reconciliation required." }, 503);
+    if (promoteError) {
+      // Preserve processing state for reconciliation; final source may already exist.
+      return json(req, { error: "Unable to promote verified document; reconciliation required." }, 503);
+    }
+    const { data: finished, error: finishError } = await finish(true);
+    if (finishError || !finished) return json(req, { error: "Unable to finalize upload; reconciliation required." }, 503);
     await scope.admin.storage.from(BUCKET).remove([quarantinePath]);
     return json(req, { documentId: doc.id, uploadStatus: "ready" });
   } catch { return json(req, { error: "Unexpected server error." }, 500); }
