@@ -148,3 +148,46 @@ const reconcile=await fetch(base+"/functions/v1/deal-document-reconcile",{
 });
 check(reconcile.status===401,`Reconciler accepted a browser JWT: ${reconcile.status}`);
 console.log("D04-B3.3 concurrent finalization, malformed DOCX and reconciler auth passed");
+
+
+// D04-B3.4: exercise the actual privileged recovery HTTP path, not only SQL RPCs.
+const recoverySecret="tripp-ci-local-reconciler-secret-only-2026";
+async function runReconciler(){
+ const response=await fetch(base+"/functions/v1/deal-document-reconcile",{
+  method:"POST",headers:{apikey:anon,authorization:"Bearer "+recoverySecret,"content-type":"application/json"},body:"{}"
+ });
+ const data=await response.json().catch(()=>({}));
+ check(response.status===200,`Reconciler HTTP failed: ${response.status} ${JSON.stringify(data)}`);
+ return data as {results?:Array<{id:string,outcome:string}>};
+}
+const abandoned=await initiate(pdf,"abandoned.pdf");
+const abandonedTime=new Date(Date.now()-5*60*60_000).toISOString();
+const {error:abandonedError}=await admin.from("deal_documents").update({created_at:abandonedTime}).eq("id",abandoned.documentId);
+check(!abandonedError,`Prepare abandoned fixture: ${abandonedError?.message}`);
+const recovering=await initiate(pdf,"recover.pdf");
+const recoveringPath=`${orgA}/${dealA}/${recovering.documentId}/source.pdf`;
+const {error:recoverySourceError}=await admin.storage.from(bucket).upload(recoveringPath,pdf,{contentType:"application/pdf",upsert:false});
+check(!recoverySourceError,`Prepare recovered source: ${recoverySourceError?.message}`);
+const leaseToken=id();
+const {data:leaseClaimed,error:leaseClaimError}=await admin.rpc("tripp_claim_document_finalize",{
+ p_id:recovering.documentId,p_org:orgA,p_deal:dealA,p_user:owner.id,p_token:leaseToken
+});
+check(!leaseClaimError&&leaseClaimed,"Prepare recovery processing lease failed");
+const expiredTime=new Date(Date.now()-20*60_000).toISOString();
+const {error:expiredError}=await admin.from("deal_documents").update({finalize_lease_until:expiredTime}).eq("id",recovering.documentId);
+check(!expiredError,`Expire recovery lease: ${expiredError?.message}`);
+const recoveryResults=await runReconciler();
+check(recoveryResults.results?.some(r=>r.id===recovering.documentId&&r.outcome==="recovered_ready"),
+ `Reconciler failed valid-source recovery: ${JSON.stringify(recoveryResults)}`);
+check(recoveryResults.results?.some(r=>r.id===abandoned.documentId&&r.outcome==="abandoned_failed"),
+ `Reconciler failed abandoned upload: ${JSON.stringify(recoveryResults)}`);
+check(await status(recovering.documentId)==="ready","Recovered document not ready");
+check(await status(abandoned.documentId)==="failed","Abandoned document not failed");
+const {data:oldWorkerResult,error:oldWorkerError}=await admin.rpc("tripp_finish_document_finalize",{
+ p_id:recovering.documentId,p_token:leaseToken,p_success:false
+});
+check(!oldWorkerError&&!oldWorkerResult,"Expired worker changed recovered document");
+const repeatedRecovery=await runReconciler();
+check(!repeatedRecovery.results?.some(r=>r.id===recovering.documentId&&r.outcome==="recovered_ready"),
+ "Reconciler recovered the same document twice");
+console.log("D04-B3.4 actual reconciler recovery, abandoned upload, stale-worker fencing and idempotency passed");
