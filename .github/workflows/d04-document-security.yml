@@ -88,7 +88,7 @@ jobs:
           echo "TRIPP_E2E_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
       - name: Serve isolated Edge Functions
         run: |
-          nohup supabase functions serve --no-verify-jwt --env-file /tmp/tripp-d04-e2e.env > /tmp/tripp-d04-functions.log 2>&1 &
+          nohup env TRIPP_ENABLE_DOCUMENT_UPLOADS=verified supabase functions serve --no-verify-jwt --env-file /tmp/tripp-d04-e2e.env > /tmp/tripp-d04-functions.log 2>&1 &
           sleep 12
           if ! kill -0 $! 2>/dev/null; then cat /tmp/tripp-d04-functions.log; exit 1; fi
       - name: Run real HTTP Storage and Edge Function tests
