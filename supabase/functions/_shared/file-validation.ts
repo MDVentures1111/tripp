@@ -20,7 +20,7 @@ export function validateDocx(b: Uint8Array): boolean {
   if(eocd<0 || u16(b,eocd+4)!==0 || u16(b,eocd+6)!==0) return false;
   const count=u16(b,eocd+10), centralSize=u32(b,eocd+12), offset=u32(b,eocd+16);
   if(count<3 || count>1000 || centralSize>2_000_000 || offset+centralSize!==eocd) return false;
-  const names=new Set<string>(); let pos=offset; let total=0;
+  const names=new Set<string>(); let pos=offset; let total=0; const ranges:Array<[number,number]>=[];
   for(let i=0;i<count;i++) {
     if(pos+46>eocd || u32(b,pos)!==0x02014b50) return false;
     const flags=u16(b,pos+8), method=u16(b,pos+10), compressed=u32(b,pos+20), expanded=u32(b,pos+24);
@@ -36,11 +36,17 @@ export function validateDocx(b: Uint8Array): boolean {
     if(names.has(name) || name.startsWith("/") || name.includes("\\") || name.split("/").includes("..") ||
        /(?:^|\/)vbaProject\.bin$/i.test(name) || /(?:^|\/)embeddings\//i.test(name)) return false;
     names.add(name);
-    if(local+30>b.length || u32(b,local)!==0x04034b50) return false;
+    if(local+30>offset || u32(b,local)!==0x04034b50) return false;
     const dataStart=local+30+u16(b,local+26)+u16(b,local+28);
-    if(dataStart+compressed>b.length || dataStart>offset) return false;
+    if(dataStart+compressed>offset || dataStart>offset) return false;
+    if(u16(b,local+6)!==flags || u16(b,local+8)!==method || u16(b,local+26)!==nameLen) return false;
+    if(!b.subarray(local+30,local+30+nameLen).every((v,j)=>v===b[pos+46+j])) return false;
+    if(method===0 && compressed!==expanded) return false;
+    ranges.push([local,dataStart+compressed]);
     pos=end;
   }
+  ranges.sort((a,b)=>a[0]-b[0]);
+  for(let i=1;i<ranges.length;i++) if(ranges[i][0]<ranges[i-1][1]) return false;
   return pos===eocd && names.has("[Content_Types].xml") && names.has("_rels/.rels") &&
     names.has("word/document.xml") && !names.has("word/vbaProject.bin");
 }
