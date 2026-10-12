@@ -1,3 +1,4 @@
+import { scanDocument } from "../_shared/malware-scanner.ts";
 import { authorize, json, preflight, readJsonBody, UUID } from "../_shared/documents.ts";
 import { validatePdf, validateDocx, MAX_DOCUMENT_BYTES } from "../_shared/file-validation.ts";
 
@@ -58,6 +59,17 @@ Deno.serve(async (req) => {
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))).map(v=>v.toString(16).padStart(2,'0')).join('');
     const { data: bound, error: bindError } = await scope.admin.rpc('tripp_bind_document_digest', { p_id: doc.id, p_token: claimToken, p_digest: digest });
     if (bindError || !bound) return json(req, { error: 'Unable to bind document integrity; reconciliation required.' }, 503);
+    const endpoint = Deno.env.get("TRIPP_MALWARE_SCANNER_URL");
+    const secret = Deno.env.get("TRIPP_MALWARE_SCANNER_SECRET");
+    if (!endpoint || !secret || Deno.env.get("TRIPP_ENABLE_MALWARE_SCANNING") !== "verified")
+      return json(req, { error: "Scanner unavailable; reconciliation required." }, 503);
+    try {
+      const scan = await scanDocument(bytes, digest, doc.mime_type, { endpoint, secret });
+      if (scan.verdict !== "clean") return json(req, { error: "Document not cleared by scanner." }, 422);
+      const { data: recorded, error: scanError } = await scope.admin.rpc("tripp_bind_document_clean_scan",
+        { p_id: doc.id, p_token: claimToken, p_digest: digest, p_engine: scan.engine });
+      if (scanError || !recorded) return json(req, { error: "Scan evidence unavailable." }, 503);
+    } catch { return json(req, { error: "Scanner unavailable; reconciliation required." }, 503); }
     // Recheck ownership immediately before promotion. This is a fencing check, not a cross-service transaction.
     const { data: leaseValid, error: leaseError } = await scope.admin.rpc("tripp_document_finalize_lease_valid", {
       p_id: doc.id, p_token: claimToken,
