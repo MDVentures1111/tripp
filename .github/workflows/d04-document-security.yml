@@ -1,0 +1,55 @@
+name: D04 Document Security CI
+on:
+  push:
+    branches: [d04-b2-backend-foundation]
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/d04-document-security.yml'
+  pull_request:
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/d04-document-security.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d04-document-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deno-unit:
+    name: Deno document validation and security unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Format check (test modules)
+        run: deno fmt --check supabase/functions/tests/documents_test.ts supabase/functions/tests/file_validation_test.ts
+      - name: Run tests
+        run: deno test --allow-env supabase/functions/tests/documents_test.ts supabase/functions/tests/file_validation_test.ts
+
+  local-supabase:
+    name: Local Supabase migration smoke check
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Verify CLI availability
+        run: supabase --version
+      - name: Check local stack prerequisites
+        run: docker --version
+      - name: Start isolated local Supabase stack
+        run: supabase start --exclude studio,imgproxy,logflare,vector,supavisor
+      - name: Show local stack status
+        run: supabase status
+      - name: Shut down isolated stack
+        if: always()
+        run: supabase stop --no-backup
