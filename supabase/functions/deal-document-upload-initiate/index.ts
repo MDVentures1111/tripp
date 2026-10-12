@@ -32,6 +32,12 @@ Deno.serve(async (req) => {
     if (scope instanceof Response) return scope;
     const documentId = crypto.randomUUID();
     const path = `${scope.orgId}/${scope.dealId}/${documentId}/source.${kind.ext}`;
+    const {data:admitted,error:admissionError}=await scope.admin.rpc("tripp_admit_document_upload",{
+      p_id:documentId,p_org:scope.orgId,p_user:scope.userId,
+    });
+    if(admissionError) return json(req,{error:"Upload admission unavailable."},503);
+    if(!admitted) return json(req,{error:"Upload quota exceeded. Try again later."},429);
+
     const { error: insertError } = await scope.admin.from("deal_documents").insert({
       id: documentId, organization_id: scope.orgId, deal_id: scope.dealId,
       document_type: b.documentType, original_filename: b.filename.trim(),
