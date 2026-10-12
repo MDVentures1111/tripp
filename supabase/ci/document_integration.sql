@@ -26,8 +26,6 @@ BEGIN
  IF (SELECT count(*) FROM public.deal_documents)<>1 THEN RAISE EXCEPTION 'Owner cannot read document'; END IF;
  IF (SELECT count(*) FROM public.deals)<>1 THEN RAISE EXCEPTION 'Cross-org deal visible'; END IF;
 END $$;
--- B4-A.3: pruning is bounded, and fresh admission records survive.
-SELECT 1 / CASE WHEN public.tripp_prune_document_admissions(1000) = 0 THEN 1 ELSE 0 END AS prune_fresh_assertion;
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000002',true);
@@ -129,6 +127,8 @@ BEGIN
  THEN RAISE EXCEPTION 'Recovery status incorrect'; END IF;
 END $$;
 
+-- B4-A.3: pruning is bounded, and fresh admission records survive.
+SELECT 1 / CASE WHEN public.tripp_prune_document_admissions(1000) = 0 THEN 1 ELSE 0 END AS prune_fresh_assertion;
 -- A zero denominator fails CI if admission is unexpectedly rejected.
 SELECT 1 / CASE WHEN public.tripp_admit_document_upload(gen_random_uuid(),
  '20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001')
