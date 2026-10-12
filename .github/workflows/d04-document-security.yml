@@ -58,3 +58,44 @@ jobs:
       - name: Shut down isolated stack
         if: always()
         run: supabase stop --no-backup
+
+
+  document-http-e2e:
+    name: Isolated Storage and Edge Function HTTP end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Prepare isolated schema prerequisites
+        run: |
+          cp supabase/ci/bootstrap_organizations.sql supabase/migrations/20261009000000_ci_bootstrap_organizations.sql
+      - name: Start local Supabase
+        run: supabase start --exclude studio,imgproxy,logflare,vector,supavisor
+      - name: Prepare local-only function configuration
+        run: |
+          supabase status -o env > /tmp/tripp-supabase-status.env
+          set -a
+          . /tmp/tripp-supabase-status.env
+          set +a
+          printf 'SUPABASE_URL=http://127.0.0.1:54321\\nSUPABASE_ANON_KEY=%s\\nSUPABASE_SERVICE_ROLE_KEY=%s\\nTRIPP_ENABLE_DOCUMENT_UPLOADS=verified\\nTRIPP_ALLOWED_ORIGINS=http://127.0.0.1:54321\\n' "$ANON_KEY" "$SERVICE_ROLE_KEY" > /tmp/tripp-d04-e2e.env
+          echo "TRIPP_E2E_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "TRIPP_E2E_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
+      - name: Serve isolated Edge Functions
+        run: |
+          nohup supabase functions serve --no-verify-jwt --env-file /tmp/tripp-d04-e2e.env > /tmp/tripp-d04-functions.log 2>&1 &
+          sleep 12
+          if ! kill -0 $! 2>/dev/null; then cat /tmp/tripp-d04-functions.log; exit 1; fi
+      - name: Run real HTTP Storage and Edge Function tests
+        run: deno run --node-modules-dir=auto --allow-env --allow-net supabase/ci/d04_b3_e2e.ts
+      - name: Print function diagnostics on failure
+        if: failure()
+        run: tail -100 /tmp/tripp-d04-functions.log || true
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
