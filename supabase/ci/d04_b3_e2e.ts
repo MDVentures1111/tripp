@@ -160,9 +160,15 @@ async function runReconciler(){
  check(response.status===200,`Reconciler HTTP failed: ${response.status} ${JSON.stringify(data)}`);
  return data as {results?:Array<{id:string,outcome:string}>};
 }
-const abandoned=await initiate(pdf,"abandoned.pdf");
+// Seed a historical pending record directly; immutable created_at cannot be updated.
+const abandonedId=id();
 const abandonedTime=new Date(Date.now()-5*60*60_000).toISOString();
-const {error:abandonedError}=await admin.from("deal_documents").update({created_at:abandonedTime}).eq("id",abandoned.documentId);
+const {error:abandonedError}=await admin.from("deal_documents").insert({
+ id:abandonedId,organization_id:orgA,deal_id:dealA,document_type:"other",
+ original_filename:"abandoned.pdf",storage_path:`${orgA}/${dealA}/${abandonedId}/source.pdf`,
+ mime_type:"application/pdf",file_size_bytes:pdf.length,uploaded_by:owner.id,
+ created_at:abandonedTime
+});
 check(!abandonedError,`Prepare abandoned fixture: ${abandonedError?.message}`);
 const recovering=await initiate(pdf,"recover.pdf");
 const recoveringPath=`${orgA}/${dealA}/${recovering.documentId}/source.pdf`;
@@ -179,10 +185,10 @@ check(!expiredError,`Expire recovery lease: ${expiredError?.message}`);
 const recoveryResults=await runReconciler();
 check(recoveryResults.results?.some(r=>r.id===recovering.documentId&&r.outcome==="recovered_ready"),
  `Reconciler failed valid-source recovery: ${JSON.stringify(recoveryResults)}`);
-check(recoveryResults.results?.some(r=>r.id===abandoned.documentId&&r.outcome==="abandoned_failed"),
+check(recoveryResults.results?.some(r=>r.id===abandonedId&&r.outcome==="abandoned_failed"),
  `Reconciler failed abandoned upload: ${JSON.stringify(recoveryResults)}`);
 check(await status(recovering.documentId)==="ready","Recovered document not ready");
-check(await status(abandoned.documentId)==="failed","Abandoned document not failed");
+check(await status(abandonedId)==="failed","Abandoned document not failed");
 const {data:oldWorkerResult,error:oldWorkerError}=await admin.rpc("tripp_finish_document_finalize",{
  p_id:recovering.documentId,p_token:leaseToken,p_success:false
 });
