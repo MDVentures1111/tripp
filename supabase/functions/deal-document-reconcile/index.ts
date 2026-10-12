@@ -24,7 +24,7 @@ Deno.serve(async (req) => {
   const { data: processing, error: queryError } = await admin.from("deal_documents")
     .select("id,organization_id,deal_id,storage_path,mime_type,file_size_bytes,upload_status,finalize_lease_until,verified_sha256")
     .eq("upload_status", "processing").lt("finalize_lease_until", cutoff).order("updated_at").limit(25);
-  if (queryError) return respond(503, { error: "Query failed" });
+  if (queryError) { auditDocumentEvent("reconciler_run",{outcome:"error",status:503,reason:"processing_query_failed"}); return respond(503, { error: "Query failed" }); }
   const results: Array<{ id: string; outcome: string }> = [];
   for (const d of processing ?? []) {
     if(!withinBudget() || downloadBudget<d.file_size_bytes){results.push({id:d.id,outcome:"budget_deferred"});break;}
