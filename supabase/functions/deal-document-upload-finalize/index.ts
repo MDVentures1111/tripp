@@ -1,19 +1,7 @@
 import { authorize, json, preflight, readJsonBody, UUID } from "../_shared/documents.ts";
-import { unzipSync } from "npm:fflate@0.8.2";
+import { validatePdf, validateDocx, MAX_DOCUMENT_BYTES } from "../_shared/file-validation.ts";
 
 const BUCKET = "tripp-deal-documents";
-const MAX = 20_971_520;
-function validPdf(bytes: Uint8Array): boolean {
-  if (bytes.length < 16 || new TextDecoder().decode(bytes.subarray(0, 5)) !== "%PDF-") return false;
-  const tail = new TextDecoder().decode(bytes.subarray(Math.max(0, bytes.length - 2048)));
-  return tail.includes("%%EOF");
-}
-function validDocx(bytes: Uint8Array): boolean {
-  if (bytes.length < 100 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) return false;
-  // ZIP metadata limits must be enforced before decompression; this preliminary
-  // implementation intentionally fails closed until a streaming bounded validator is installed.
-  return false;
-}
 Deno.serve(async (req) => {
   const options = preflight(req);
   if (options) return options;
@@ -41,9 +29,10 @@ Deno.serve(async (req) => {
       return json(req, { error: "Document unavailable." }, 503);
     const { data: object, error: objectError } = await scope.admin.storage.from(BUCKET).download(doc.storage_path);
     if (objectError || !object) return json(req, { error: "Upload not complete." }, 409);
+    if (object.size > MAX_DOCUMENT_BYTES) return json(req, { error: "Document exceeds size limit." }, 422);
     const bytes = new Uint8Array(await object.arrayBuffer());
-    const valid = bytes.length === doc.file_size_bytes && bytes.length <= MAX &&
-      (ext === "pdf" ? validPdf(bytes) : validDocx(bytes));
+    const valid = bytes.length === doc.file_size_bytes && bytes.length <= MAX_DOCUMENT_BYTES &&
+      (ext === "pdf" ? validatePdf(bytes) : validateDocx(bytes));
     if (!valid) {
       await scope.admin.storage.from(BUCKET).remove([doc.storage_path]);
       await scope.admin.from("deal_documents").update({ upload_status: "failed" })
