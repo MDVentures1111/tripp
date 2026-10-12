@@ -238,3 +238,33 @@ check(admissionRace.filter(r=>r.status===429).length===6,
 const finalAdmissions=await admin.from("document_upload_admissions").select("id",{count:"exact",head:true}).eq("user_id",owner.id);
 check(!finalAdmissions.error&&finalAdmissions.count===20,"Hourly admission count is not 20");
 console.log("D04-B4-A.2 parallel admission ceiling and quota rejection passed");
+
+
+// D04-B4-A.3: different-user requests share the same org admission ceiling.
+const orgRunner=await account("org-quota-runner");
+await seed("organization_memberships",{organization_id:orgA,user_id:orgRunner.id,role:"member"});
+const activeRows=await admin.from("deal_documents").select("id",{count:"exact",head:true})
+ .eq("organization_id",orgA).in("upload_status",["pending","processing"]);
+check(!activeRows.error,"Org active count failed");
+const admissions=await admin.from("document_upload_admissions").select("id,created_at")
+ .eq("organization_id",orgA);
+check(!admissions.error&&!!admissions.data,"Org admission count failed");
+const activeIds=await admin.from("deal_documents").select("id,upload_status").eq("organization_id",orgA);
+check(!activeIds.error&&!!activeIds.data,"Org reservation status query failed");
+const activeSet=new Set(activeIds.data.filter(d=>d.upload_status==="pending"||d.upload_status==="processing").map(d=>d.id));
+const cutoff=Date.now()-3*60*60_000;
+const reserved=new Set([...activeSet,...admissions.data.filter(a=>Date.parse(a.created_at)>cutoff &&
+ (!activeIds.data.some(d=>d.id===a.id)||activeSet.has(a.id))).map(a=>a.id)]);
+const padding=Math.max(0,99-reserved.size);
+check(reserved.size<=99,"Unexpected pre-existing org quota fixtures");
+if(padding>0){
+ const {error:padError}=await admin.from("document_upload_admissions").insert(
+  Array.from({length:padding},()=>({id:id(),organization_id:orgA,user_id:orgRunner.id})));
+ check(!padError,"Prepare org quota reservations: "+padError?.message);
+}
+const orgRace=await Promise.all(Array.from({length:6},()=>invoke("upload-initiate",orgRunner.token,input)));
+check(orgRace.filter(r=>r.status===201).length===1,
+ "Org reservation quota admitted multiple parallel requests: "+JSON.stringify(orgRace.map(r=>r.status)));
+check(orgRace.filter(r=>r.status===429).length===5,
+ "Org quota did not reject overflow: "+JSON.stringify(orgRace.map(r=>r.status)));
+console.log("D04-B4-A.3 concurrent cross-user org reservation ceiling passed");
