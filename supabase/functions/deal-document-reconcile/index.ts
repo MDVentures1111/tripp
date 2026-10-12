@@ -15,7 +15,7 @@ Deno.serve(async (req) => {
     return respond(503, { error: "Reconciler disabled pending verification" });
   const url = Deno.env.get("SUPABASE_URL"), key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key) return respond(503, { error: "Missing configuration" });
-  const admin = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const admin = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(10000) }) } });
   const deadline = Date.now()+45_000;
   let downloadBudget=100*1024*1024;
   const withinBudget=()=>Date.now()<deadline;
