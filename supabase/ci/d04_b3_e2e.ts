@@ -38,8 +38,12 @@ async function invoke(name:string,token:string,body:unknown,method="POST"){
 function check(ok:boolean,message:string){if(!ok)throw Error(message)}
 const pdf=new TextEncoder().encode("%PDF-1.4\n1 0 obj\n%%EOF\n");
 const input={organizationId:orgA,dealId:dealA,filename:"ci.pdf",documentType:"other",fileKind:"pdf",fileSizeBytes:pdf.length};
-check((await invoke("upload-initiate",viewer.token,input)).status===404,"Viewer upload not denied");
-check((await invoke("upload-initiate",outsider.token,input)).status===404,"Cross-org upload not denied");
+const viewerResponse=await invoke("upload-initiate",viewer.token,input);
+console.log("D04-B3.1 viewer upload response",JSON.stringify(viewerResponse));
+check(viewerResponse.status===404,`Viewer upload not denied: ${viewerResponse.status} ${JSON.stringify(viewerResponse.data)}`);
+const outsiderResponse=await invoke("upload-initiate",outsider.token,input);
+console.log("D04-B3.1 outsider upload response",JSON.stringify(outsiderResponse));
+check(outsiderResponse.status===404,`Cross-org upload not denied: ${outsiderResponse.status} ${JSON.stringify(outsiderResponse.data)}`);
 const init=await invoke("upload-initiate",owner.token,input);
 check(init.status===201,`Upload initiate: ${init.status} ${JSON.stringify(init.data)}`);
 const documentId=init.data.documentId;
