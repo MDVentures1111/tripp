@@ -88,6 +88,43 @@ BEGIN
  IF public.tripp_finish_document_finalize('40000000-0000-4000-8000-000000000001',token,false)
  THEN RAISE EXCEPTION 'Replay accepted'; END IF;
 END $$;
+
+-- Recovery fixtures: abandoned pending and expired processing lease.
+INSERT INTO public.deal_documents(id,organization_id,deal_id,document_type,original_filename,storage_path,mime_type,file_size_bytes,uploaded_by,created_at)
+VALUES ('40000000-0000-4000-8000-000000000002','20000000-0000-4000-8000-000000000001',
+'30000000-0000-4000-8000-000000000001','other','abandoned.pdf','ci/abandoned.pdf',
+'application/pdf',64,'10000000-0000-4000-8000-000000000001',now()-interval '4 hours');
+INSERT INTO public.deal_documents(id,organization_id,deal_id,document_type,original_filename,storage_path,mime_type,file_size_bytes,uploaded_by)
+VALUES ('40000000-0000-4000-8000-000000000003','20000000-0000-4000-8000-000000000001',
+'30000000-0000-4000-8000-000000000001','other','stale.pdf','ci/stale.pdf',
+'application/pdf',64,'10000000-0000-4000-8000-000000000001');
+DO $
+DECLARE old_token uuid:='50000000-0000-4000-8000-000000000003';
+new_token uuid:='50000000-0000-4000-8000-000000000004';
+BEGIN
+ IF NOT public.tripp_fail_abandoned_pending('40000000-0000-4000-8000-000000000002')
+ THEN RAISE EXCEPTION 'Abandoned pending not failed'; END IF;
+ IF public.tripp_fail_abandoned_pending('40000000-0000-4000-8000-000000000002')
+ THEN RAISE EXCEPTION 'Abandoned pending replay succeeded'; END IF;
+ IF NOT public.tripp_claim_document_finalize('40000000-0000-4000-8000-000000000003',
+ '20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001',
+ '10000000-0000-4000-8000-000000000001',old_token)
+ THEN RAISE EXCEPTION 'Recovery setup claim failed'; END IF;
+ UPDATE public.deal_documents SET finalize_lease_until=now()-interval '3 minutes'
+ WHERE id='40000000-0000-4000-8000-000000000003';
+ IF public.tripp_document_finalize_lease_valid('40000000-0000-4000-8000-000000000003',old_token)
+ THEN RAISE EXCEPTION 'Expired lease still valid'; END IF;
+ IF NOT public.tripp_claim_stale_document('40000000-0000-4000-8000-000000000003',new_token)
+ THEN RAISE EXCEPTION 'Expired processing lease not reclaimed'; END IF;
+ IF public.tripp_finish_document_finalize('40000000-0000-4000-8000-000000000003',old_token,true)
+ THEN RAISE EXCEPTION 'Old worker finalized reclaimed document'; END IF;
+ IF NOT public.tripp_finish_document_finalize('40000000-0000-4000-8000-000000000003',new_token,false)
+ THEN RAISE EXCEPTION 'Reconciler failed to mark document failed'; END IF;
+ IF (SELECT upload_status FROM public.deal_documents
+ WHERE id='40000000-0000-4000-8000-000000000003')<>'failed'
+ THEN RAISE EXCEPTION 'Recovery status incorrect'; END IF;
+END $;
+
 RESET ROLE;
 ROLLBACK;
 \echo 'CI integration assertions passed'
