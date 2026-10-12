@@ -40,7 +40,7 @@ RESET ROLE;
 -- Verify browser roles cannot write document metadata, even as an org member.
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000002',true);
-DO $
+DO $$
 BEGIN
  BEGIN
   INSERT INTO public.deal_documents(organization_id,deal_id,document_type,original_filename,storage_path,mime_type,file_size_bytes,uploaded_by)
@@ -54,10 +54,10 @@ BEGIN
   RAISE EXCEPTION 'Viewer updated metadata';
  EXCEPTION WHEN insufficient_privilege THEN NULL;
  END;
-END $;
+END $$;
 RESET ROLE;
 -- A composite FK must reject a document whose organization differs from its deal.
-DO $
+DO $$
 BEGIN
  BEGIN
   INSERT INTO public.deal_documents(organization_id,deal_id,document_type,original_filename,storage_path,mime_type,file_size_bytes,uploaded_by)
@@ -66,7 +66,7 @@ BEGIN
   RAISE EXCEPTION 'Cross-organization document foreign key accepted';
  EXCEPTION WHEN foreign_key_violation THEN NULL;
  END;
-END $;
+END $$;
 
 SET LOCAL ROLE service_role;
 DO $$
@@ -98,7 +98,7 @@ INSERT INTO public.deal_documents(id,organization_id,deal_id,document_type,origi
 VALUES ('40000000-0000-4000-8000-000000000003','20000000-0000-4000-8000-000000000001',
 '30000000-0000-4000-8000-000000000001','other','stale.pdf','ci/stale.pdf',
 'application/pdf',64,'10000000-0000-4000-8000-000000000001');
-DO $
+DO $$
 DECLARE old_token uuid:='50000000-0000-4000-8000-000000000003';
 new_token uuid:='50000000-0000-4000-8000-000000000004';
 BEGIN
@@ -123,7 +123,7 @@ BEGIN
  IF (SELECT upload_status FROM public.deal_documents
  WHERE id='40000000-0000-4000-8000-000000000003')<>'failed'
  THEN RAISE EXCEPTION 'Recovery status incorrect'; END IF;
-END $;
+END $$;
 
 RESET ROLE;
 ROLLBACK;
