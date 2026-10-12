@@ -259,7 +259,7 @@ const padding=Math.max(0,99-reserved.size);
 check(reserved.size<=99,"Unexpected pre-existing org quota fixtures");
 if(padding>0){
  const {error:padError}=await admin.from("document_upload_admissions").insert(
-  Array.from({length:padding},()=>({id:id(),organization_id:orgA,user_id:orgRunner.id})));
+  Array.from({length:padding},()=>({id:id(),organization_id:orgA,user_id:owner.id})));
  check(!padError,"Prepare org quota reservations: "+padError?.message);
 }
 const orgRace=await Promise.all(Array.from({length:6},()=>invoke("upload-initiate",orgRunner.token,input)));
