@@ -81,6 +81,9 @@ Deno.serve(async (req) => {
     const { error } = await admin.storage.from(BUCKET).remove([quarantine]);
     results.push({ id: d.id, outcome: error ? "quarantine_cleanup_failed" : "quarantine_cleanup_attempted" });
   }
+  const {data:pruned,error:pruneError}=await admin.rpc("tripp_prune_document_admissions",{p_limit:1000});
+  if(pruneError) auditDocumentEvent("admission_cleanup",{outcome:"error",status:503,reason:"prune_rpc_failed"});
+  else auditDocumentEvent("admission_cleanup",{outcome:"completed",status:200,reason:"pruned="+pruned});
   auditDocumentEvent("reconciler_run",{outcome:"completed",status:200,reason:
     "scanned="+((processing?.length??0)+(abandoned?.length??0)+(stale?.length??0))+
     ";processed="+results.length+";deferred="+results.filter(r=>r.outcome==="budget_deferred").length});
