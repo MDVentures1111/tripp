@@ -200,3 +200,27 @@ const repeatedRecovery=await runReconciler();
 check(!repeatedRecovery.results?.some(r=>r.id===recovering.documentId&&r.outcome==="recovered_ready"),
  "Reconciler recovered the same document twice");
 console.log("D04-B3.4 actual reconciler recovery, abandoned upload, stale-worker fencing and idempotency passed");
+
+const tamperedDoc=await initiate(pdf,"tampered-recovery.pdf");
+const altered=pdf.slice();
+altered[9]=altered[9]===49?50:49;
+check(altered.length===pdf.length,"Tamper fixture size changed");
+const tamperedPath=`${orgA}/${dealA}/${tamperedDoc.documentId}/source.pdf`;
+const {error:tamperedUploadError}=await admin.storage.from(bucket).upload(tamperedPath,altered,{contentType:"application/pdf",upsert:false});
+check(!tamperedUploadError,"Tampered source fixture upload failed");
+const tamperedToken=id();
+const {data:tamperedClaim,error:tamperedClaimError}=await admin.rpc("tripp_claim_document_finalize",{
+ p_id:tamperedDoc.documentId,p_org:orgA,p_deal:dealA,p_user:owner.id,p_token:tamperedToken
+});
+check(!tamperedClaimError&&tamperedClaim,"Tampered fixture claim failed");
+const {data:tamperedBound,error:tamperedBindError}=await admin.rpc("tripp_bind_document_digest",{
+ p_id:tamperedDoc.documentId,p_token:tamperedToken,p_digest:digest
+});
+check(!tamperedBindError&&tamperedBound,"Tampered fixture digest bind failed");
+const {error:tamperedExpireError}=await admin.from("deal_documents").update({finalize_lease_until:expiredTime}).eq("id",tamperedDoc.documentId);
+check(!tamperedExpireError,"Tampered fixture lease expiry failed");
+const tamperedReconcile=await runReconciler();
+check(tamperedReconcile.results?.some(r=>r.id===tamperedDoc.documentId&&r.outcome==="digest_mismatch_manual_review"),
+ "Tampered same-size source was not rejected by reconciler");
+check(await status(tamperedDoc.documentId)==="processing","Tampered document was published");
+console.log("D04-B3.6 same-size source tampering rejected by SHA-256 recovery check");
