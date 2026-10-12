@@ -18,7 +18,7 @@ Deno.serve(async (req) => {
   const cutoff = new Date(Date.now() - 12 * 60_000).toISOString();
   const pendingCutoff = new Date(Date.now() - 3 * 60 * 60_000).toISOString();
   const { data: processing, error: queryError } = await admin.from("deal_documents")
-    .select("id,organization_id,deal_id,storage_path,mime_type,file_size_bytes,upload_status,finalize_lease_until")
+    .select("id,organization_id,deal_id,storage_path,mime_type,file_size_bytes,upload_status,finalize_lease_until,verified_sha256")
     .eq("upload_status", "processing").lt("finalize_lease_until", cutoff).order("updated_at").limit(25);
   if (queryError) return respond(503, { error: "Query failed" });
   const results: Array<{ id: string; outcome: string }> = [];
@@ -41,6 +41,8 @@ Deno.serve(async (req) => {
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const valid = bytes.length === d.file_size_bytes && (ext === "pdf" ? validatePdf(bytes) : validateDocx(bytes));
     if (!valid) { results.push({ id: d.id, outcome: "validation_failed_manual_review" }); continue; }
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(v=>v.toString(16).padStart(2,'0')).join('');
+    if (!d.verified_sha256 || d.verified_sha256 !== digest) { results.push({id:d.id,outcome:'digest_mismatch_manual_review'}); continue; }
     const { data: finished, error: finishError } = await admin.rpc("tripp_finish_document_finalize", {
       p_id: d.id, p_token: token, p_success: true,
     });
