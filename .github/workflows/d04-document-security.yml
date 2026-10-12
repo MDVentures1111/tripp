@@ -83,13 +83,13 @@ jobs:
           set -a
           . /tmp/tripp-supabase-status.env
           set +a
-          printf 'SUPABASE_URL=http://127.0.0.1:54321\nSUPABASE_ANON_KEY=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\nTRIPP_ENABLE_DOCUMENT_UPLOADS=verified\nTRIPP_ALLOWED_ORIGINS=http://127.0.0.1:54321\n' "$ANON_KEY" "$SERVICE_ROLE_KEY" > /tmp/tripp-d04-e2e.env
+          printf 'SUPABASE_URL=http://127.0.0.1:54321\nSUPABASE_ANON_KEY=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\nTRIPP_ENABLE_DOCUMENT_UPLOADS=verified\nTRIPP_ENABLE_RECONCILER=verified\nTRIPP_RECONCILER_SECRET=tripp-ci-local-reconciler-secret-only-2026\nTRIPP_ALLOWED_ORIGINS=http://127.0.0.1:54321\n' "$ANON_KEY" "$SERVICE_ROLE_KEY" > /tmp/tripp-d04-e2e.env
           grep -qx "TRIPP_ENABLE_DOCUMENT_UPLOADS=verified" /tmp/tripp-d04-e2e.env
           echo "TRIPP_E2E_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
           echo "TRIPP_E2E_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
       - name: Serve isolated Edge Functions
         run: |
-          nohup env TRIPP_ENABLE_DOCUMENT_UPLOADS=verified supabase functions serve --no-verify-jwt --env-file /tmp/tripp-d04-e2e.env > /tmp/tripp-d04-functions.log 2>&1 &
+          nohup env TRIPP_ENABLE_DOCUMENT_UPLOADS=verified TRIPP_ENABLE_RECONCILER=verified TRIPP_RECONCILER_SECRET=tripp-ci-local-reconciler-secret-only-2026 supabase functions serve --no-verify-jwt --env-file /tmp/tripp-d04-e2e.env > /tmp/tripp-d04-functions.log 2>&1 &
           sleep 12
           if ! kill -0 $! 2>/dev/null; then cat /tmp/tripp-d04-functions.log; exit 1; fi
       - name: Run real HTTP Storage and Edge Function tests
