@@ -224,3 +224,17 @@ check(tamperedReconcile.results?.some(r=>r.id===tamperedDoc.documentId&&r.outcom
  "Tampered same-size source was not rejected by reconciler");
 check(await status(tamperedDoc.documentId)==="processing","Tampered document was published");
 console.log("D04-B3.6 same-size source tampering rejected by SHA-256 recovery check");
+
+
+// D04-B4-A.2: parallel admission cannot exceed the per-user hourly cap.
+const previousAdmissions=await admin.from("document_upload_admissions").select("id",{count:"exact",head:true}).eq("user_id",owner.id);
+check(!previousAdmissions.error,"Admission count query failed");
+const remaining=Math.max(0,20-(previousAdmissions.count??0));
+const admissionRace=await Promise.all(Array.from({length:remaining+6},()=>invoke("upload-initiate",owner.token,input)));
+check(admissionRace.filter(r=>r.status===201).length===remaining,
+ "Concurrent admission exceeded hourly limit: "+JSON.stringify(admissionRace.map(r=>r.status)));
+check(admissionRace.filter(r=>r.status===429).length===6,
+ "Quota exhaustion did not fail closed: "+JSON.stringify(admissionRace.map(r=>r.status)));
+const finalAdmissions=await admin.from("document_upload_admissions").select("id",{count:"exact",head:true}).eq("user_id",owner.id);
+check(!finalAdmissions.error&&finalAdmissions.count===20,"Hourly admission count is not 20");
+console.log("D04-B4-A.2 parallel admission ceiling and quota rejection passed");
