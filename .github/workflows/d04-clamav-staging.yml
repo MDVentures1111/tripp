@@ -36,6 +36,14 @@ jobs:
           SCANNER_BEARER_SECRET: local-staging-only-not-for-production-123456789
           SCANNER_TEST_URL: http://127.0.0.1:8081/scan
         run: deno run --allow-net --allow-env scanner/staging_test.ts
+      - name: Verify fail-closed scanner outage
+        env:
+          SCANNER_BEARER_SECRET: local-staging-only-not-for-production-123456789
+          SCANNER_TEST_URL: http://127.0.0.1:8081/scan
+          SCANNER_TEST_OUTAGE: 'true'
+        run: |
+          docker stop staging-clamd
+          deno run --allow-net --allow-env scanner/staging_test.ts
       - name: Diagnostics
         if: failure()
         run: |
