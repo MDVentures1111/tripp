@@ -1,3 +1,4 @@
+import { inspectDocument, isInspectionCleared } from "../_shared/content-inspector.ts";
 import { scanDocument } from "../_shared/malware-scanner.ts";
 import { auditDocumentEvent } from "../_shared/document-audit.ts";
 import { boundedReconcilerFetch } from "../_shared/reconciler-transport.ts";
@@ -74,6 +75,22 @@ Deno.serve(async (req) => {
       } catch {
         results.push({id:d.id,outcome:"scan_unavailable_retry_later"}); continue;
       }
+    }
+    if (Deno.env.get("TRIPP_REQUIRE_CONTENT_INSPECTION") === "verified") {
+      const endpoint = Deno.env.get("TRIPP_CONTENT_INSPECTOR_URL");
+      const secret = Deno.env.get("TRIPP_CONTENT_INSPECTOR_SECRET");
+      if (!endpoint || !secret || !withinBudget()) {
+        results.push({ id: d.id, outcome: "inspection_unavailable_retry_later" }); continue;
+      }
+      try {
+        const inspection = await inspectDocument(bytes, digest, d.mime_type, { endpoint, secret });
+        if (!isInspectionCleared(inspection, digest)) {
+          results.push({ id: d.id, outcome: "inspection_not_safe_manual_review" }); continue;
+        }
+      } catch {
+        results.push({ id: d.id, outcome: "inspection_unavailable_retry_later" }); continue;
+      }
+      // Persisted attestation and DB READY gate are a separate mandatory release step.
     }
     const { data: finished, error: finishError } = await admin.rpc("tripp_finish_document_finalize", {
       p_id: d.id, p_token: token, p_success: true,
