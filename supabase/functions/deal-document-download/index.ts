@@ -24,6 +24,10 @@ Deno.serve(async (req) => {
       doc.mime_type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ? "docx" : null;
     if (!ext || doc.storage_path !== `${scope.orgId}/${scope.dealId}/${input.documentId}/source.${ext}`)
       return json(req, { error: "Document unavailable." }, 503);
+    // No persisted inspector attestation exists yet. Fail closed when inspection
+    // is required rather than treating an in-memory prior verdict as durable.
+    if (Deno.env.get("TRIPP_REQUIRE_CONTENT_INSPECTION") === "verified")
+      return json(req, { error: "Document inspection attestation unavailable." }, 503);
     const { data: signed, error: signedError } = await scope.admin.storage.from("tripp-deal-documents")
       .createSignedUrl(doc.storage_path, 60);
     if (signedError || !signed) return json(req, { error: "Document unavailable." }, 503);
