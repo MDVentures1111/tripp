@@ -34,7 +34,7 @@ jobs:
           sleep 110
           nohup deno run --allow-net --allow-env scanner/gateway.ts > /tmp/tripp-real-scanner.log 2>&1 &
           sleep 3
-          curl --silent --fail-with-body --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/scan | grep -q 401
+          test "$(curl --silent --max-time 5 -X POST -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/scan)" = 401
       - name: Prepare local-only function configuration
         run: |
           SCANNER_GATEWAY=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' supabase_edge_runtime_tripp | grep -oE '^[0-9]+(\.[0-9]+){3}')
