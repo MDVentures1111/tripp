@@ -63,3 +63,11 @@ Deno.test("B4-B.5 PDF adversarial markers and boundary cases", () => {
  const huge=new Uint8Array(20_971_521);huge.set(enc.encode("%PDF-1.7"),0);
  check(!validatePdf(huge),"Oversized PDF accepted");
 });
+
+Deno.test("B4-B.5 obfuscated PDF name tokens are rejected", () => {
+ const enc=new TextEncoder();
+ for(const token of ["/J#61vaScript","/Open#41ction","/Em#62eddedFile","/Laun#63h","/J#53"]){
+  const bytes=enc.encode("%PDF-1.7\n1 0 obj\n<< "+token+" 1 >>\nendobj\n%%EOF\n");
+  check(!validatePdf(bytes),"Escaped active-content token accepted: "+token);
+ }
+});
