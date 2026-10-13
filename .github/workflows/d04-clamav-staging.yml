@@ -21,6 +21,7 @@ jobs:
             sleep 5
           done
           docker ps
+          sleep 90
       - name: Start gateway
         env:
           SCANNER_BEARER_SECRET: local-staging-only-not-for-production-123456789
