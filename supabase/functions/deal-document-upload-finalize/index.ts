@@ -1,3 +1,4 @@
+import { inspectDocument, isInspectionCleared } from "../_shared/content-inspector.ts";
 import { scanDocument } from "../_shared/malware-scanner.ts";
 import { authorize, json, preflight, readJsonBody, UUID } from "../_shared/documents.ts";
 import { validatePdf, validateDocx, MAX_DOCUMENT_BYTES } from "../_shared/file-validation.ts";
@@ -70,6 +71,25 @@ Deno.serve(async (req) => {
         { p_id: doc.id, p_token: claimToken, p_digest: digest, p_engine: scan.engine });
       if (scanError || !recorded) return json(req, { error: "Scan evidence unavailable." }, 503);
     } catch { return json(req, { error: "Scanner unavailable; reconciliation required." }, 503); }
+    // Optional review-only inspection gate. When explicitly enabled, never promote
+    // without a safe digest-bound attestation from an independent inspector.
+    if (Deno.env.get("TRIPP_REQUIRE_CONTENT_INSPECTION") === "verified") {
+      const inspectorEndpoint = Deno.env.get("TRIPP_CONTENT_INSPECTOR_URL");
+      const inspectorSecret = Deno.env.get("TRIPP_CONTENT_INSPECTOR_SECRET");
+      if (!inspectorEndpoint || !inspectorSecret)
+        return json(req, { error: "Document inspector unavailable; reconciliation required." }, 503);
+      try {
+        const inspection = await inspectDocument(bytes, digest, doc.mime_type, {
+          endpoint: inspectorEndpoint, secret: inspectorSecret,
+        });
+        if (!isInspectionCleared(inspection, digest))
+          return json(req, { error: "Document not cleared by content inspector." }, 422);
+      } catch {
+        return json(req, { error: "Document inspector unavailable; reconciliation required." }, 503);
+      }
+      // This feature flag is a staging safeguard, NOT production certification:
+      // persistent DB inspection evidence and READY/download gates are still required.
+    }
     // Recheck ownership immediately before promotion. This is a fencing check, not a cross-service transaction.
     const { data: leaseValid, error: leaseError } = await scope.admin.rpc("tripp_document_finalize_lease_valid", {
       p_id: doc.id, p_token: claimToken,
