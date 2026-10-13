@@ -36,7 +36,7 @@ async function scan(bytes:Uint8Array, signal:AbortSignal):Promise<{verdict:"clea
    if(message.includes("\0")||message.includes("\n"))break;
   }
   reader.releaseLock();
-  if(message.trim().startsWith("stream: ") && message.trim().endsWith(" FOUND"))return {verdict:"malicious",engine:"clamav"};
+  if(message.replaceAll(String.fromCharCode(0),"").trim().startsWith("stream: ") && message.trim().endsWith(" FOUND"))return {verdict:"malicious",engine:"clamav"};
   if(message.trim()==="stream: OK")return {verdict:"clean",engine:"clamav"};
   return {verdict:"indeterminate",engine:"clamav"};
  } finally { signal.removeEventListener("abort",onAbort); try{socket.close()}catch{ /* already closed */ } }
