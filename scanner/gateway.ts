@@ -12,7 +12,7 @@ async function scan(bytes:Uint8Array):Promise<{verdict:"clean"|"malicious"|"inde
  const socket = await Deno.connect({hostname:clamdHost,port:clamdPort,transport:"tcp"});
  try {
   const writer = socket.writable.getWriter();
-  const header = encoder.encode("zINSTREAM\\0");
+  const header = encoder.encode("zINSTREAM\0");
   await writer.write(header);
   for(let offset=0;offset<bytes.length;offset+=65536){
    const chunk=bytes.subarray(offset,Math.min(offset+65536,bytes.length));
@@ -29,7 +29,7 @@ async function scan(bytes:Uint8Array):Promise<{verdict:"clean"|"malicious"|"inde
    const {value,done}=await reader.read();
    if(done)break;
    message+=new TextDecoder().decode(value);
-   if(message.includes("\\0")||message.includes("\\n"))break;
+   if(message.includes("\0")||message.includes("\n"))break;
   }
   reader.releaseLock();
   if(message.includes(" FOUND"))return {verdict:"malicious",engine:"clamav"};
