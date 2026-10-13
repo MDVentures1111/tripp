@@ -20,3 +20,10 @@ if(unauth.status!==401)throw Error("Unauthenticated scanner request accepted");
 const mismatch=await fetch(endpoint,{method:"POST",headers:{authorization:`Bearer ${secret}`,"x-content-sha256":"0".repeat(64)},body:clean});
 if(mismatch.status!==422)throw Error("Digest mismatch accepted");
 console.log("Real ClamAV gateway: clean, EICAR, authorization, and digest checks passed");
+
+if(Deno.env.get("SCANNER_TEST_OUTAGE")==="true"){
+ const digest=await sha(clean);
+ const res=await fetch(endpoint,{method:"POST",headers:{authorization:`Bearer ${secret}`,"x-content-sha256":digest},body:new Uint8Array(clean)});
+ if(res.status!==503)throw Error(`Scanner outage must fail closed with 503, got ${res.status}`);
+ console.log("Real ClamAV gateway outage fails closed");
+}
