@@ -85,6 +85,12 @@ BEGIN
  THEN RAISE EXCEPTION 'Lease invalid'; END IF;
  IF NOT public.tripp_bind_document_digest('40000000-0000-4000-8000-000000000001',token,repeat('a',64))
  THEN RAISE EXCEPTION 'Digest binding failed'; END IF;
+ IF public.tripp_finish_document_finalize('40000000-0000-4000-8000-000000000001',token,true)
+ THEN RAISE EXCEPTION 'Unscanned document became READY'; END IF;
+ IF public.tripp_bind_document_clean_scan('40000000-0000-4000-8000-000000000001',token,repeat('b',64),'ci-fixture')
+ THEN RAISE EXCEPTION 'Mismatched scan digest accepted'; END IF;
+ IF NOT public.tripp_bind_document_clean_scan('40000000-0000-4000-8000-000000000001',token,repeat('a',64),'ci-fixture')
+ THEN RAISE EXCEPTION 'Clean scan evidence rejected'; END IF;
  IF NOT public.tripp_finish_document_finalize('40000000-0000-4000-8000-000000000001',token,true)
  THEN RAISE EXCEPTION 'Finalize failed'; END IF;
  IF public.tripp_finish_document_finalize('40000000-0000-4000-8000-000000000001',token,false)
