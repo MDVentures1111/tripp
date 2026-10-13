@@ -45,7 +45,7 @@ jobs:
           . /tmp/tripp-supabase-status.env
           set +a
           printf 'SUPABASE_URL=http://127.0.0.1:54321\nSUPABASE_ANON_KEY=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\nTRIPP_ENABLE_DOCUMENT_UPLOADS=verified\nTRIPP_ENABLE_RECONCILER=verified\nTRIPP_RECONCILER_SECRET=tripp-ci-local-reconciler-secret-only-2026\nTRIPP_ALLOWED_ORIGINS=http://127.0.0.1:54321\nTRIPP_ENABLE_MALWARE_SCANNING=verified\nTRIPP_MALWARE_SCANNER_URL=http://%s:8080/scan\nTRIPP_CI_SCANNER_FIXTURE=isolated\nTRIPP_MALWARE_SCANNER_SECRET=tripp-ci-scanner-secret-not-for-production-2026\n' "$ANON_KEY" "$SERVICE_ROLE_KEY" "$SCANNER_GATEWAY" > /tmp/tripp-d04-e2e.env
-          SCANNER_STATUS=$(curl --silent --show-error --max-time 3 -o /dev/null -w '%{http_code}' "http://$SCANNER_GATEWAY:8080/scan")
+          SCANNER_STATUS=$(curl --silent --show-error --max-time 3 -X POST -o /dev/null -w '%{http_code}' "http://$SCANNER_GATEWAY:8080/scan")
           test "$SCANNER_STATUS" = 401
           grep -qx "TRIPP_ENABLE_DOCUMENT_UPLOADS=verified" /tmp/tripp-d04-e2e.env
           echo "TRIPP_E2E_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
