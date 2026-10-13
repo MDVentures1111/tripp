@@ -1,0 +1,45 @@
+name: Real ClamAV staging smoke
+on:
+  push:
+    branches: [d04-b2-backend-foundation]
+    paths: ['scanner/**', '.github/workflows/d04-clamav-staging.yml']
+  workflow_dispatch:
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Start isolated ClamAV
+        run: |
+          docker run -d --name staging-clamd -p 127.0.0.1:3310:3310 clamav/clamav:stable
+          for i in $(seq 1 90); do
+            if timeout 2 bash -c 'echo > /dev/tcp/127.0.0.1/3310' 2>/dev/null; then break; fi
+            sleep 5
+          done
+          docker ps
+      - name: Start gateway
+        env:
+          SCANNER_BEARER_SECRET: local-staging-only-not-for-production-123456789
+          CLAMD_HOST: 127.0.0.1
+          PORT: '8081'
+        run: |
+          nohup deno run --allow-net --allow-env scanner/gateway.ts > /tmp/scanner.log 2>&1 &
+          sleep 3
+          cat /tmp/scanner.log
+      - name: Exercise real ClamAV
+        env:
+          SCANNER_BEARER_SECRET: local-staging-only-not-for-production-123456789
+          SCANNER_TEST_URL: http://127.0.0.1:8081/scan
+        run: deno run --allow-net --allow-env scanner/staging_test.ts
+      - name: Diagnostics
+        if: failure()
+        run: |
+          tail -100 /tmp/scanner.log || true
+          docker logs staging-clamd | tail -100 || true
+      - name: Cleanup
+        if: always()
+        run: docker rm -f staging-clamd || true
