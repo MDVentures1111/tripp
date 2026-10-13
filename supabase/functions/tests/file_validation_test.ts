@@ -59,6 +59,10 @@ Deno.test("DOCX ZIP local header consistency and overlapping entries", () => {
  check(!validateDocx(expanded),"Oversized expanded ZIP entry accepted");
  const bomb=valid.slice();write32(bomb,centralStart+20,1);write32(bomb,centralStart+24,1000);
  check(!validateDocx(bomb),"Excessive compression ratio accepted");
+ const descriptor=valid.slice();write16(descriptor,centralStart+8,8);write16(descriptor,6,8);
+ check(!validateDocx(descriptor),"Ambiguous ZIP data descriptor accepted");
+ const mismatchedExtra=valid.slice();write16(mismatchedExtra,28,1);
+ check(!validateDocx(mismatchedExtra),"Mismatched local extra field accepted");
  const offsetAttack=valid.slice();write32(offsetAttack,centralStart+42,0xfffffff0);
  check(!validateDocx(offsetAttack),"Out-of-bounds local header accepted");
 
@@ -67,7 +71,7 @@ Deno.test("DOCX ZIP local header consistency and overlapping entries", () => {
 Deno.test("B4-B.5 PDF adversarial markers and boundary cases", () => {
  const enc=new TextEncoder();
  const wrap=(s:string)=>enc.encode("%PDF-1.7\n1 0 obj\n"+s+"\nendobj\n%%EOF\n");
- for(const marker of ["/JavaScript","/JS","/OpenAction","/AA","/Launch","/EmbeddedFile","/RichMedia","/XFA","/AcroForm"]){
+ for(const marker of ["/JavaScript","/JS","/OpenAction","/AA","/Launch","/EmbeddedFile","/RichMedia","/XFA","/AcroForm","/ObjStm","/Encrypt"]){
   check(!validatePdf(wrap(marker)),"Active PDF marker accepted: "+marker);
  }
  check(!validatePdf(wrap("safe").subarray(0,18)),"Truncated PDF accepted");
