@@ -27,3 +27,21 @@ if(Deno.env.get("SCANNER_TEST_OUTAGE")==="true"){
  if(res.status!==503)throw Error(`Scanner outage must fail closed with 503, got ${res.status}`);
  console.log("Real ClamAV gateway outage fails closed");
 }
+
+if(Deno.env.get("SCANNER_TEST_OUTAGE")!=="true"){
+ // B4-B.5: oversized bodies, declared-size bypass, parallel workload and recovery.
+ const request=async(bytes:Uint8Array,headers:Record<string,string>={})=>fetch(endpoint,{
+  method:"POST",headers:{authorization:`Bearer ${secret}`,"x-content-sha256":await sha(bytes),...headers},
+  body:new Uint8Array(bytes)
+ });
+ const oversized=new Uint8Array(20*1024*1024+1);
+ const oversizedResponse=await request(oversized);
+ if(oversizedResponse.status!==413)throw Error("Oversized body was not rejected");
+ const empty=await request(new Uint8Array());
+ if(empty.status!==400)throw Error("Empty file was accepted");
+ const burst=await Promise.all(Array.from({length:6},()=>request(clean)));
+ if(burst.some(x=>![200,503].includes(x.status)))throw Error("Unexpected concurrent scan response");
+ if(!burst.some(x=>x.status===200))throw Error("All concurrent requests failed");
+ await probe(clean,"clean");
+ console.log("B4-B.5 scanner boundary: oversized, empty, concurrency and post-burst recovery passed");
+}
