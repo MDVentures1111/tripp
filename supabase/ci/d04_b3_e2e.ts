@@ -81,8 +81,27 @@ async function scannerVerdictFixture(marker:string,expected:number){
  check((await invoke("download",owner.token,{...body,documentId:fixtureId})).status===404,
   "Non-clean scanner verdict became downloadable");
 }
-await scannerVerdictFixture("CI_MALICIOUS_FIXTURE",422);
-await scannerVerdictFixture("CI_INDETERMINATE_FIXTURE",422);
+async function initiateRealEicar(bytes:Uint8Array){
+ const result=await invoke("upload-initiate",owner.token,{...input,filename:"antivirus-test.pdf",fileSizeBytes:bytes.length});
+ check(result.status===201,"Real ClamAV fixture initiation failed");
+ const fixtureId=result.data.documentId as string;
+ const path=`${orgA}/${dealA}/${fixtureId}/quarantine.pdf`;
+ const upload=await publicClient.storage.from(bucket).uploadToSignedUrl(path,result.data.uploadToken,bytes,{contentType:"application/pdf"});
+ check(!upload.error,"Real ClamAV fixture upload failed");
+ const outcome=await invoke("upload-finalize",owner.token,{...body,documentId:fixtureId});
+ const {data}=await admin.from("deal_documents").select("upload_status").eq("id",fixtureId).single();
+ check((outcome.status===422||outcome.status===503)&&data?.upload_status!=="ready","Real ClamAV did not reject EICAR");
+ check((await invoke("download",owner.token,{...body,documentId:fixtureId})).status===404,"Rejected EICAR document downloadable");
+ return true;
+}
+if(Deno.env.get("TRIPP_REAL_CLAMAV_E2E")!=="true"){
+ await scannerVerdictFixture("CI_MALICIOUS_FIXTURE",422);
+ await scannerVerdictFixture("CI_INDETERMINATE_FIXTURE",422);
+} else {
+ const eicar = new TextEncoder().encode("%PDF-1.4\n1 0 obj\nX5O!P%@AP[4\\\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*\n%%EOF\n");
+ const rejected=await initiateRealEicar(eicar);
+ check(rejected,"Real ClamAV did not block antivirus test signature");
+}
 console.log("D04-B4-B.2.1 malicious and indeterminate scanner verdicts fail closed");
 
 // D04-B3.2 adversarial scenarios, all against ephemeral local Storage and database.
