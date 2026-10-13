@@ -50,6 +50,18 @@ Deno.test("DOCX ZIP local header consistency and overlapping entries", () => {
  const firstName=centralStart+46;
  traversal[firstName]=46;traversal[firstName+1]=46;
  check(!validateDocx(traversal),"Unsafe central filename accepted");
+
+ const zip64=valid.slice();write32(zip64,centralStart+20,0xffffffff);
+ check(!validateDocx(zip64),"ZIP64 sentinel accepted");
+ const encrypted=valid.slice();write16(encrypted,centralStart+8,1);
+ check(!validateDocx(encrypted),"Encrypted ZIP entry accepted");
+ const expanded=valid.slice();write32(expanded,centralStart+24,10_000_001);
+ check(!validateDocx(expanded),"Oversized expanded ZIP entry accepted");
+ const bomb=valid.slice();write32(bomb,centralStart+20,1);write32(bomb,centralStart+24,1000);
+ check(!validateDocx(bomb),"Excessive compression ratio accepted");
+ const offsetAttack=valid.slice();write32(offsetAttack,centralStart+42,0xfffffff0);
+ check(!validateDocx(offsetAttack),"Out-of-bounds local header accepted");
+
 });
 
 Deno.test("B4-B.5 PDF adversarial markers and boundary cases", () => {
