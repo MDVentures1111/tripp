@@ -67,7 +67,7 @@ console.log("D04-B3 local HTTP authorization, signed upload, finalize, and downl
 
 // B4-B.2.1: CI fixture verdicts must fail closed, including download denial.
 async function scannerVerdictFixture(marker:string,expected:number){
- const bytes=new TextEncoder().encode("%PDF-1.4\\n1 0 obj\\n"+marker+"\\n%%EOF\\n");
+ const bytes=new TextEncoder().encode("%PDF-1.4\n1 0 obj\n"+marker+"\n%%EOF\n");
  const result=await invoke("upload-initiate",owner.token,{...input,filename:"scan-fixture.pdf",fileSizeBytes:bytes.length});
  check(result.status===201,"Scanner fixture initiation failed");
  const fixtureId=result.data.documentId as string;
