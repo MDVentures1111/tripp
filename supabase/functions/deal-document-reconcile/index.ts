@@ -1,3 +1,4 @@
+import { scanDocument } from "../_shared/malware-scanner.ts";
 import { auditDocumentEvent } from "../_shared/document-audit.ts";
 import { boundedReconcilerFetch } from "../_shared/reconciler-transport.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -52,7 +53,28 @@ Deno.serve(async (req) => {
     if (!d.verified_sha256 || d.verified_sha256 !== digest) { results.push({id:d.id,outcome:'digest_mismatch_manual_review'}); continue; }
     // Recovery cannot mark READY without persisted clean scan evidence.
     const { data: scanRecord } = await admin.from("deal_documents").select("malware_scan_sha256").eq("id",d.id).single();
-    if (scanRecord?.malware_scan_sha256 !== digest) { results.push({id:d.id,outcome:"scan_evidence_missing"}); continue; }
+    if (scanRecord?.malware_scan_sha256 !== digest) {
+      const endpoint = Deno.env.get("TRIPP_MALWARE_SCANNER_URL");
+      const secret = Deno.env.get("TRIPP_MALWARE_SCANNER_SECRET");
+      if (Deno.env.get("TRIPP_ENABLE_MALWARE_SCANNING") !== "verified" || !endpoint || !secret) {
+        results.push({id:d.id,outcome:"scan_unavailable_retry_later"}); continue;
+      }
+      try {
+        if (!withinBudget()) { results.push({id:d.id,outcome:"budget_deferred"}); break; }
+        const verdict = await scanDocument(bytes,digest,d.mime_type,{endpoint,secret});
+        if (verdict.verdict !== "clean") {
+          results.push({id:d.id,outcome:"scan_not_clean_manual_review"}); continue;
+        }
+        const {data:bound,error:scanError}=await admin.rpc("tripp_bind_document_clean_scan",{
+          p_id:d.id,p_token:token,p_digest:digest,p_engine:verdict.engine
+        });
+        if (scanError || !bound) {
+          results.push({id:d.id,outcome:"scan_binding_failed"}); continue;
+        }
+      } catch {
+        results.push({id:d.id,outcome:"scan_unavailable_retry_later"}); continue;
+      }
+    }
     const { data: finished, error: finishError } = await admin.rpc("tripp_finish_document_finalize", {
       p_id: d.id, p_token: token, p_success: true,
     });
