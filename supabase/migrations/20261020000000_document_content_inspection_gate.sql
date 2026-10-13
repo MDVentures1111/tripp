@@ -20,20 +20,7 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.tripp_bind_document_content_inspection(uuid,uuid,text,text,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.tripp_bind_document_content_inspection(uuid,uuid,text,text,text) TO service_role;
-CREATE OR REPLACE FUNCTION public.tripp_finish_document_finalize(p_id uuid,p_token uuid,p_success boolean)
-RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$
-DECLARE n integer;
-BEGIN
- UPDATE public.deal_documents SET upload_status=CASE WHEN p_success THEN 'ready' ELSE 'failed' END,
- finalize_token=NULL,finalize_lease_until=NULL
- WHERE id=p_id AND upload_status='processing' AND finalize_token=p_token
- AND finalize_lease_until>now()
- AND (NOT p_success OR (verified_sha256 IS NOT NULL AND
- malware_scan_sha256=verified_sha256 AND malware_scanned_at IS NOT NULL AND
- content_inspection_sha256=verified_sha256 AND content_inspected_at IS NOT NULL AND
- content_inspection_engine IS NOT NULL AND content_inspection_policy IS NOT NULL));
- GET DIAGNOSTICS n=ROW_COUNT; RETURN n=1;
-END $$;
-REVOKE ALL ON FUNCTION public.tripp_finish_document_finalize(uuid,uuid,boolean) FROM PUBLIC,anon,authenticated;
-GRANT EXECUTE ON FUNCTION public.tripp_finish_document_finalize(uuid,uuid,boolean) TO service_role;
+-- Inspection attestation is staged, but READY enforcement is deferred until
+-- the real inspector and its full lifecycle integration are independently verified.
+-- The preceding malware-scan migration retains its READY gate.
 COMMIT;
