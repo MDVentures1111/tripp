@@ -1,0 +1,71 @@
+name: D04 Real ClamAV Application Integration
+on:
+  push:
+    branches: [d04-b2-backend-foundation]
+    paths: ['scanner/**', 'supabase/**', '.github/workflows/d04-real-clamav-e2e.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-clamav-http-e2e:
+    name: Real ClamAV full Storage and Edge Function HTTP end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v3.0.1
+        with:
+          version: 2.120.0
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Prepare isolated schema prerequisites
+        run: |
+          cp supabase/ci/bootstrap_organizations.sql supabase/migrations/20261009000000_ci_bootstrap_organizations.sql
+      - name: Start local Supabase
+        run: supabase start --exclude studio,imgproxy,logflare,vector,supavisor
+      - name: Start real ClamAV and gateway
+        env:
+          SCANNER_BEARER_SECRET: tripp-ci-scanner-secret-not-for-production-2026
+          CLAMD_HOST: 127.0.0.1
+          PORT: '8080'
+        run: |
+          docker run -d --name tripp-real-clamd -p 127.0.0.1:3310:3310 clamav/clamav:stable
+          sleep 110
+          nohup deno run --allow-net --allow-env scanner/gateway.ts > /tmp/tripp-real-scanner.log 2>&1 &
+          sleep 3
+          curl --silent --fail-with-body --max-time 5 -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/scan | grep -q 401
+      - name: Prepare local-only function configuration
+        run: |
+          SCANNER_GATEWAY=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' supabase_edge_runtime_tripp | grep -oE '^[0-9]+(\.[0-9]+){3}')
+          test -n "$SCANNER_GATEWAY"
+          echo "Scanner Docker gateway resolved"
+          supabase status -o env > /tmp/tripp-supabase-status.env
+          set -a
+          . /tmp/tripp-supabase-status.env
+          set +a
+          printf 'SUPABASE_URL=http://127.0.0.1:54321\nSUPABASE_ANON_KEY=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\nTRIPP_ENABLE_DOCUMENT_UPLOADS=verified\nTRIPP_ENABLE_RECONCILER=verified\nTRIPP_RECONCILER_SECRET=tripp-ci-local-reconciler-secret-only-2026\nTRIPP_ALLOWED_ORIGINS=http://127.0.0.1:54321\nTRIPP_ENABLE_MALWARE_SCANNING=verified\nTRIPP_MALWARE_SCANNER_URL=http://%s:8080/scan\nTRIPP_CI_SCANNER_FIXTURE=isolated\nTRIPP_MALWARE_SCANNER_SECRET=tripp-ci-scanner-secret-not-for-production-2026\n' "$ANON_KEY" "$SERVICE_ROLE_KEY" "$SCANNER_GATEWAY" > /tmp/tripp-d04-e2e.env
+          SCANNER_STATUS=$(curl --silent --show-error --max-time 3 -o /dev/null -w '%{http_code}' "http://$SCANNER_GATEWAY:8080/scan")
+          test "$SCANNER_STATUS" = 401
+          grep -qx "TRIPP_ENABLE_DOCUMENT_UPLOADS=verified" /tmp/tripp-d04-e2e.env
+          echo "TRIPP_E2E_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "TRIPP_E2E_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
+      - name: Serve isolated Edge Functions
+        run: |
+          nohup env TRIPP_ENABLE_DOCUMENT_UPLOADS=verified TRIPP_ENABLE_RECONCILER=verified TRIPP_RECONCILER_SECRET=tripp-ci-local-reconciler-secret-only-2026 supabase functions serve --no-verify-jwt --env-file /tmp/tripp-d04-e2e.env > /tmp/tripp-d04-functions.log 2>&1 &
+          sleep 12
+          if ! kill -0 $! 2>/dev/null; then cat /tmp/tripp-d04-functions.log; exit 1; fi
+      - name: Run real HTTP Storage and Edge Function tests
+        env:
+          TRIPP_REAL_CLAMAV_E2E: 'true'
+        run: deno run --node-modules-dir=auto --allow-env --allow-net supabase/ci/d04_b3_e2e.ts
+      - name: Print function diagnostics on failure
+        if: failure()
+        run: tail -100 /tmp/tripp-d04-functions.log || true
+          tail -100 /tmp/tripp-real-scanner.log || true
+          docker logs tripp-real-clamd | tail -50 || true
+      - name: Stop local Supabase
+        if: always()
+        run: |
+          supabase stop --no-backup
+          docker rm -f tripp-real-clamd || true
