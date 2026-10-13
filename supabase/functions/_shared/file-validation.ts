@@ -13,7 +13,7 @@ export function validatePdf(b: Uint8Array): boolean {
   const source = ascii(b);
   // PDF names permit #hh hex escapes, e.g. /J#61vaScript. Normalize before matching.
   const decodedNames = source.replace(/\/([A-Za-z0-9#]+)/g, (_match, raw: string) => "/" + raw.replace(/#([0-9a-fA-F]{2})/g, (_: string, h: string) => String.fromCharCode(parseInt(h, 16))));
-  if (/\/(?:JavaScript|JS|OpenAction|AA|Launch|EmbeddedFile|RichMedia|XFA|AcroForm)(?![A-Za-z0-9])/i.test(decodedNames)) return false;
+  if (/\/(?:JavaScript|JS|OpenAction|AA|Launch|EmbeddedFile|RichMedia|XFA|AcroForm|ObjStm|Encrypt)(?![A-Za-z0-9])/i.test(decodedNames)) return false;
   return true;
 }
 /** Reject ZIP64, encryption, traversal, duplicates, macros and oversized ZIP entries. */
@@ -33,7 +33,7 @@ export function validateDocx(b: Uint8Array): boolean {
     const flags=u16(b,pos+8), method=u16(b,pos+10), compressed=u32(b,pos+20), expanded=u32(b,pos+24);
     const nameLen=u16(b,pos+28), extra=u16(b,pos+30), comment=u16(b,pos+32);
     const local=u32(b,pos+42), end=pos+46+nameLen+extra+comment;
-    if(end>eocd || !nameLen || (flags&1)!==0 || (method!==0 && method!==8) ||
+    if(end>eocd || !nameLen || (flags & (1 | 8 | 0x40 | 0x2000))!==0 || (method!==0 && method!==8) ||
       compressed===0xffffffff || expanded===0xffffffff || local===0xffffffff ||
       expanded>10_000_000 || (compressed===0 && expanded>0) ||
       (compressed>0 && expanded/compressed>100)) return false;
@@ -46,7 +46,7 @@ export function validateDocx(b: Uint8Array): boolean {
     if(local+30>offset || u32(b,local)!==0x04034b50) return false;
     const dataStart=local+30+u16(b,local+26)+u16(b,local+28);
     if(dataStart+compressed>offset || dataStart>offset) return false;
-    if(u16(b,local+6)!==flags || u16(b,local+8)!==method || u16(b,local+26)!==nameLen) return false;
+    if(u16(b,local+6)!==flags || u16(b,local+8)!==method || u16(b,local+26)!==nameLen || u16(b,local+28)!==extra) return false;
     if(!b.subarray(local+30,local+30+nameLen).every((v,j)=>v===b[pos+46+j])) return false;
     if(method===0 && compressed!==expanded) return false;
     ranges.push([local,dataStart+compressed]);
