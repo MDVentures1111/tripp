@@ -98,7 +98,7 @@ if(Deno.env.get("TRIPP_REAL_CLAMAV_E2E")!=="true"){
  await scannerVerdictFixture("CI_MALICIOUS_FIXTURE",422);
  await scannerVerdictFixture("CI_INDETERMINATE_FIXTURE",422);
 } else {
- const eicar = new TextEncoder().encode("%PDF-1.4\n1 0 obj\nX5O!P%@AP[4\\\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*\n%%EOF\n");
+ const eicar = new TextEncoder().encode("%PDF-1.4\n1 0 obj\nX5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*\n%%EOF\n");
  const rejected=await initiateRealEicar(eicar);
  check(rejected,"Real ClamAV did not block antivirus test signature");
 }
