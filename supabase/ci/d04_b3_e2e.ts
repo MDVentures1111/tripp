@@ -99,6 +99,50 @@ if(Deno.env.get("TRIPP_REAL_CLAMAV_E2E")!=="true"){
  const outcome=await invoke("upload-finalize",owner.token,{...body,documentId:fixtureId});
  check(outcome.status===422,"Malformed PDF was not rejected by application");
  check((await invoke("download",owner.token,{...body,documentId:fixtureId})).status===404,"Malformed PDF became downloadable");
+
+ const eicar=new TextEncoder().encode("X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*");
+ const names=["[Content_Types].xml","_rels/.rels","word/document.xml","word/media/antivirus-test.txt"];
+ const chunks:number[]=[];const central:number[]=[];const enc=new TextEncoder();
+ const put16=(a:number[],v:number)=>a.push(v&255,(v>>>8)&255);
+ const put32=(a:number[],v:number)=>{put16(a,v&65535);put16(a,v>>>16);};
+ const crc32=(data:Uint8Array)=>{let crc=0xffffffff;for(const b of data){crc^=b;for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}return (crc^0xffffffff)>>>0;};
+ for(const name of names){
+  const filename=enc.encode(name),payload=name.endsWith("antivirus-test.txt")?eicar:enc.encode("<xml/>");
+  const crc=crc32(payload),offset=chunks.length;
+  const local:number[]=[];put32(local,0x04034b50);put16(local,20);put16(local,0);put16(local,0);
+  put16(local,0);put16(local,0);put32(local,crc);put32(local,payload.length);put32(local,payload.length);
+  put16(local,filename.length);put16(local,0);
+  chunks.push(...local,...filename,...payload);
+  put32(central,0x02014b50);put16(central,20);put16(central,20);put16(central,0);put16(central,0);
+  put16(central,0);put16(central,0);put32(central,crc);put32(central,payload.length);put32(central,payload.length);
+  put16(central,filename.length);put16(central,0);put16(central,0);put16(central,0);put16(central,0);
+  put32(central,0);put32(central,offset);central.push(...filename);
+ }
+ const centralOffset=chunks.length;chunks.push(...central);
+ const tail:number[]=[];put32(tail,0x06054b50);put16(tail,0);put16(tail,0);
+ put16(tail,names.length);put16(tail,names.length);put32(tail,central.length);put32(tail,centralOffset);put16(tail,0);
+ chunks.push(...tail);
+ const maliciousDocx=new Uint8Array(chunks);
+ const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",maliciousDocx))).map(v=>v.toString(16).padStart(2,"0")).join("");
+ const scannerUrl=Deno.env.get("TRIPP_E2E_SCANNER_URL")??"http://127.0.0.1:8080/scan";
+ const scannerSecret=Deno.env.get("TRIPP_E2E_SCANNER_SECRET")??"";
+ const scanResponse=await fetch(scannerUrl,{method:"POST",headers:{"authorization":"Bearer "+scannerSecret,"x-content-sha256":hash,"content-type":"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},body:maliciousDocx});
+ const scanResult=await scanResponse.json();
+ check(scanResponse.status===200&&scanResult.verdict==="malicious","Real ClamAV did not classify ZIP-embedded canonical EICAR as malicious");
+ const attempt=await invoke("upload-initiate",owner.token,{...input,filename:"malicious.docx",fileKind:"docx",fileSizeBytes:maliciousDocx.length});
+ check(attempt.status===201,"Malicious DOCX initiation failed");
+ const maliciousId=attempt.data.documentId as string;
+ const uploaded=await publicClient.storage.from(bucket).uploadToSignedUrl(
+  orgA+"/"+dealA+"/"+maliciousId+"/quarantine.docx",attempt.data.uploadToken,maliciousDocx,
+  {contentType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+ check(!uploaded.error,"Malicious DOCX quarantine upload failed");
+ const denied=await invoke("upload-finalize",owner.token,{...body,documentId:maliciousId});
+ check(denied.status===422,"Real ClamAV malicious DOCX not denied: "+denied.status+" "+JSON.stringify(denied.data));
+ const {data:maliciousState}=await admin.from("deal_documents").select("upload_status").eq("id",maliciousId).single();
+ check(maliciousState?.upload_status!=="ready","Malicious DOCX promoted to READY");
+ check((await invoke("download",owner.token,{...body,documentId:maliciousId})).status===404,"Malicious DOCX downloadable");
+ console.log("Real ClamAV full application malicious DOCX denied and download blocked");
+
  console.log("Real ClamAV E2E clean file passed; malformed PDF rejected and download denied");
 }
 console.log("D04-B4-B.2.1 malicious and indeterminate scanner verdicts fail closed");
