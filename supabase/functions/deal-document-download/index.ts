@@ -16,10 +16,10 @@ Deno.serve(async (req) => {
     const scope = await authorize(req, input.organizationId, input.dealId);
     if (scope instanceof Response) return scope;
     const { data: doc, error } = await scope.admin.from("deal_documents")
-      .select("storage_path, upload_status, mime_type").eq("id", input.documentId)
+      .select("storage_path, upload_status, mime_type, verified_sha256, malware_scan_sha256, malware_scanned_at").eq("id", input.documentId)
       .eq("organization_id", scope.orgId).eq("deal_id", scope.dealId).maybeSingle();
     if (error) return json(req, { error: "Service unavailable." }, 503);
-    if (!doc || doc.upload_status !== "ready") return json(req, { error: "Not found." }, 404);
+    if (!doc || doc.upload_status !== "ready" || !doc.verified_sha256 || doc.malware_scan_sha256 !== doc.verified_sha256 || !doc.malware_scanned_at) return json(req, { error: "Not found." }, 404);
     const ext = doc.mime_type === "application/pdf" ? "pdf" :
       doc.mime_type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ? "docx" : null;
     if (!ext || doc.storage_path !== `${scope.orgId}/${scope.dealId}/${input.documentId}/source.${ext}`)
