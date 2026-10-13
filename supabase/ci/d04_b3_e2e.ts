@@ -182,6 +182,10 @@ check(!leaseClaimError&&leaseClaimed,"Prepare recovery processing lease failed")
 const digest=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",pdf))).map(v=>v.toString(16).padStart(2,"0")).join("");
 const {data:digestBound,error:digestError}=await admin.rpc("tripp_bind_document_digest",{p_id:recovering.documentId,p_token:leaseToken,p_digest:digest});
 check(!digestError&&digestBound,"Recovery digest binding failed");
+const {data:recoveryScan,error:recoveryScanError}=await admin.rpc("tripp_bind_document_clean_scan",{
+ p_id:recovering.documentId,p_token:leaseToken,p_digest:digest,p_engine:"ci-fixture"
+});
+check(!recoveryScanError&&recoveryScan,"Recovery scan evidence binding failed");
 const expiredTime=new Date(Date.now()-20*60_000).toISOString();
 const {error:expiredError}=await admin.from("deal_documents").update({finalize_lease_until:expiredTime}).eq("id",recovering.documentId);
 check(!expiredError,`Expire recovery lease: ${expiredError?.message}`);
