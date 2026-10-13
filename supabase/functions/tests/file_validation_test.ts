@@ -51,3 +51,15 @@ Deno.test("DOCX ZIP local header consistency and overlapping entries", () => {
  traversal[firstName]=46;traversal[firstName+1]=46;
  check(!validateDocx(traversal),"Unsafe central filename accepted");
 });
+
+Deno.test("B4-B.5 PDF adversarial markers and boundary cases", () => {
+ const enc=new TextEncoder();
+ const wrap=(s:string)=>enc.encode("%PDF-1.7\n1 0 obj\n"+s+"\nendobj\n%%EOF\n");
+ for(const marker of ["/JavaScript","/JS","/OpenAction","/AA","/Launch","/EmbeddedFile","/RichMedia","/XFA","/AcroForm"]){
+  check(!validatePdf(wrap(marker)),"Active PDF marker accepted: "+marker);
+ }
+ check(!validatePdf(wrap("safe").subarray(0,18)),"Truncated PDF accepted");
+ check(!validatePdf(enc.encode("%PDF-1.7\n1 0 obj\n%%EOF\nTRAILING")),"Trailing PDF bytes accepted");
+ const huge=new Uint8Array(20_971_521);huge.set(enc.encode("%PDF-1.7"),0);
+ check(!validatePdf(huge),"Oversized PDF accepted");
+});
