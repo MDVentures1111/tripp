@@ -12,8 +12,8 @@ export function validatePdf(b: Uint8Array): boolean {
   // This does not inspect compressed streams or certify malware safety.
   const source = ascii(b);
   // PDF names permit #hh hex escapes, e.g. /J#61vaScript. Normalize before matching.
-  const decodedNames = source.replace(/\\/([A-Za-z0-9#]+)/g, (match, raw: string) => "/" + raw.replace(/#([0-9a-fA-F]{2})/g, (_: string, h: string) => String.fromCharCode(parseInt(h, 16))));
-  if (/\\/(?:JavaScript|JS|OpenAction|AA|Launch|EmbeddedFile|RichMedia|XFA|AcroForm)(?![A-Za-z0-9])/i.test(decodedNames)) return false;
+  const decodedNames = source.replace(/\/([A-Za-z0-9#]+)/g, (_match, raw: string) => "/" + raw.replace(/#([0-9a-fA-F]{2})/g, (_: string, h: string) => String.fromCharCode(parseInt(h, 16))));
+  if (/\/(?:JavaScript|JS|OpenAction|AA|Launch|EmbeddedFile|RichMedia|XFA|AcroForm)(?![A-Za-z0-9])/i.test(decodedNames)) return false;
   return true;
 }
 /** Reject ZIP64, encryption, traversal, duplicates, macros and oversized ZIP entries. */
