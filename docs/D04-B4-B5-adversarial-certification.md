@@ -1,24 +1,35 @@
 # D04-B4-B.5 — Adversarial file testing and security certification
 
-**Status: IN PROGRESS / NO-GO.** This document tracks tested controls and open release blockers. Passing automated tests is not independent security certification.
+**Status: IN PROGRESS / NO-GO.** Passing automated tests is not independent security certification. This is review-branch evidence only; production uploads remain disabled.
 
-## Added verification
-- Real ClamAV staging gateway: standard antivirus test signature and clean-file differentiation, bearer authentication, digest mismatch, scanner outage.
-- Gateway stress boundary: oversized actual request body (>20 MiB), empty request, six concurrent scans, post-burst clean scan.
-- PDF regression: known active-content markers, truncated file, trailing data, oversized PDF.
-- Existing DOCX ZIP regressions: central directory corruption, local header mismatch, unsafe names, overlapping records, ZIP64/encryption and expansion limits implemented in validator.
+## Verified evidence (13 October 2026)
 
-## Additional review-branch verification (CI results pending)
-- PDF hexadecimal-escaped active-content name regression cases.
-- DOCX ZIP64, encryption, expanded-size, compression-ratio and out-of-bounds local-header regression cases.
-- Dedicated isolated full application HTTP E2E using real ClamAV instead of simulated verdicts, including EICAR finalization denial and signed-download denial. This does not replace independent security review or sandboxed document parsing.
+| Control | Evidence | Finding |
+|---|---|---|
+| PDF/DOCX structural regression suite | [Document Security CI #38438335318](https://github.com/MDVentures1111/tripp/actions/runs/38438335318), commit `16ce0daa` | PASS |
+| Real ClamAV full HTTP application integration | [Real ClamAV CI #38438356079](https://github.com/MDVentures1111/tripp/actions/runs/38438356079), commit `2493b6fa` | PASS |
+| Real ClamAV malware identification | Full integration CI sends ZIP-embedded canonical EICAR to the scanner gateway and requires a `malicious` verdict | PASS (test signature only) |
+| Application malicious DOCX quarantine-to-finalize path | Full integration CI requires finalization HTTP 422, non-`ready` database state, and download HTTP 404 | PASS |
+| Clean-file application lifecycle | Full integration CI exercises clean upload, finalization and download against real scanner | PASS |
+| Malformed PDF | Full integration CI requires rejection and download denial | PASS |
+| Gateway fault boundaries | Real ClamAV staging tests cover oversized, empty, concurrency, post-burst recovery, unauthorized, digest mismatch and scanner outage | Prior staging PASS |
 
-## Explicitly unverified
-1. Compressed or obfuscated PDF JavaScript, incremental revisions, malformed cross-reference tables, polyglots, PDF parser differential attacks.
-2. DOCX OPC relationships and external links, decompressed XML content types, entity expansion, malformed deflate streams, zip-bomb behavior with actual decompression, embedded OLE objects.
-3. ClamAV signature freshness enforcement, versioned scan attestations, scanner restart under load, multiple workers, per-tenant fairness, slow-client upload deadlines and real resource ceilings.
-4. Full application E2E staging with actual scanner gateway (prior application E2E used simulated scanner); scanner outage-to-reconciler rescan and signed-download denial.
-5. Independent security review, operational alert routing, database migration reconciliation and production rollback.
+The malicious DOCX fixture is a **synthetic structurally consistent ZIP**, not a representative production DOCX or comprehensive adversarial corpus. ClamAV's EICAR detection is not evidence that all malicious files will be detected. Tests are isolated CI, not production-equivalent staging.
+
+## Defense-in-depth currently implemented
+
+- PDF: size/header/terminal EOF checks; known active feature names, including hexadecimal-escaped names, are denied; `/ObjStm` and `/Encrypt` are denied. These are **byte-pattern checks**, not a full parser.
+- DOCX: ZIP central/local-header bounds, filename consistency, traversal/duplicate/overlap, ZIP64/encryption, selected ambiguous ZIP flags, expansion limits and compression ratio limits.
+- Application: quarantine upload, digest binding, scanner clean verdict before READY, download gated on scan evidence and verified digest.
+
+## Remaining certification blockers
+
+1. **Sandboxed parser/sanitizer**: real PDF object/xref/stream/incremental-update inspection; DOCX decompression, XML and OPC relationships, external references, macros/OLE, malformed deflate and entity expansion. Bounded runtime, CPU, memory and expanded-byte limits; fail closed.
+2. **Representative corpus**: benign real-world PDFs/DOCX, licensed adversarial samples, compressed-stream and ZIP/OOXML attacks; record false positives and parser differentials.
+3. **Scanner operations**: signature freshness, versioned scan attestation, restart/load behavior, resource ceilings, per-tenant fairness, slow clients, independent private/TLS ingress.
+4. **Lifecycle resilience**: scanner outage → reconciliation → clean rescan and final download denial; fault injection across Storage/DB partial failures and expired leases.
+5. **Release governance**: independent security review, alerting/runbooks, production migration-history reconciliation, staging rollback and production gate sign-off.
 
 ## Certification decision
-**NO-GO**. Do not claim all PDFs/DOCX are safe or enable production uploads. Before promoting B4-B, add a sandboxed PDF/OOXML parser/sanitizer, representative licensed adversarial corpus, production-grade scanner infrastructure and full integrated staging evidence.
+
+**NO-GO** for production document uploads. Continue with sandboxed document parser architecture and an isolated verification harness before any production promotion. No changes to the production branch or Supabase are authorized by this record.
