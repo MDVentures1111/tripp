@@ -8,6 +8,11 @@
 - PDF regression: known active-content markers, truncated file, trailing data, oversized PDF.
 - Existing DOCX ZIP regressions: central directory corruption, local header mismatch, unsafe names, overlapping records, ZIP64/encryption and expansion limits implemented in validator.
 
+## Additional review-branch verification (CI results pending)
+- PDF hexadecimal-escaped active-content name regression cases.
+- DOCX ZIP64, encryption, expanded-size, compression-ratio and out-of-bounds local-header regression cases.
+- Dedicated isolated full application HTTP E2E using real ClamAV instead of simulated verdicts, including EICAR finalization denial and signed-download denial. This does not replace independent security review or sandboxed document parsing.
+
 ## Explicitly unverified
 1. Compressed or obfuscated PDF JavaScript, incremental revisions, malformed cross-reference tables, polyglots, PDF parser differential attacks.
 2. DOCX OPC relationships and external links, decompressed XML content types, entity expansion, malformed deflate streams, zip-bomb behavior with actual decompression, embedded OLE objects.
