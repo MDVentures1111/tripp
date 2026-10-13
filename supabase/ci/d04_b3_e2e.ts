@@ -65,6 +65,26 @@ check(!!directError,"Anonymous direct Storage download unexpectedly permitted");
 console.log("D04-B3 local HTTP authorization, signed upload, finalize, and download passed");
 
 
+// B4-B.2.1: CI fixture verdicts must fail closed, including download denial.
+async function scannerVerdictFixture(marker:string,expected:number){
+ const bytes=new TextEncoder().encode("%PDF-1.4\\n1 0 obj\\n"+marker+"\\n%%EOF\\n");
+ const result=await invoke("upload-initiate",owner.token,{...input,filename:"scan-fixture.pdf",fileSizeBytes:bytes.length});
+ check(result.status===201,"Scanner fixture initiation failed");
+ const fixtureId=result.data.documentId as string;
+ const path=`${orgA}/${dealA}/${fixtureId}/quarantine.pdf`;
+ const upload=await publicClient.storage.from(bucket).uploadToSignedUrl(path,result.data.uploadToken,bytes,{contentType:"application/pdf"});
+ check(!upload.error,"Scanner fixture upload failed");
+ const outcome=await invoke("upload-finalize",owner.token,{...body,documentId:fixtureId});
+ check(outcome.status===expected,`Scanner fixture ${marker} expected ${expected}, got ${outcome.status}: ${JSON.stringify(outcome.data)}`);
+ const {data,error}=await admin.from("deal_documents").select("upload_status").eq("id",fixtureId).single();
+ check(!error&&data?.upload_status!=="ready","Non-clean scanner verdict became READY");
+ check((await invoke("download",owner.token,{...body,documentId:fixtureId})).status===404,
+  "Non-clean scanner verdict became downloadable");
+}
+await scannerVerdictFixture("CI_MALICIOUS_FIXTURE",422);
+await scannerVerdictFixture("CI_INDETERMINATE_FIXTURE",422);
+console.log("D04-B4-B.2.1 malicious and indeterminate scanner verdicts fail closed");
+
 // D04-B3.2 adversarial scenarios, all against ephemeral local Storage and database.
 async function initiate(bytes:Uint8Array,filename="adversarial.pdf",fileKind="pdf"){
  const response=await invoke("upload-initiate",owner.token,{...input,filename,fileKind,fileSizeBytes:bytes.length});
