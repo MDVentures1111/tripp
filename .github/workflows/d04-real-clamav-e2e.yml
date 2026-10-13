@@ -58,6 +58,7 @@ jobs:
       - name: Run real HTTP Storage and Edge Function tests
         env:
           TRIPP_REAL_CLAMAV_E2E: 'true'
+          TRIPP_E2E_SCANNER_SECRET: tripp-ci-scanner-secret-not-for-production-2026
         run: deno run --node-modules-dir=auto --allow-env --allow-net supabase/ci/d04_b3_e2e.ts
       - name: Print function diagnostics on failure
         if: failure()
