@@ -186,6 +186,15 @@ await uploadQuarantine(bad,malformed);
 const badFinalize=await invoke("upload-finalize",owner.token,{...body,documentId:bad.documentId});
 check(badFinalize.status===422,`Malformed PDF not rejected: ${badFinalize.status}`);
 check(await status(bad.documentId)==="failed","Malformed PDF did not fail closed");
+// D04-C: rejection reason is persisted and exposed to the frontend contract.
+check(badFinalize.data.uploadStatus==="failed"&&badFinalize.data.failureReason==="invalid_pdf"&&badFinalize.data.code==="document_rejected",
+ "Finalize rejection contract mismatch: "+JSON.stringify(badFinalize.data));
+{
+ const r=await fetch(`${base}/functions/v1/deal-document-list?organizationId=${orgA}&dealId=${dealA}&documentId=${bad.documentId}`,{headers:{apikey:anon,authorization:"Bearer "+viewer.token}});
+ const d=await r.json();
+ check(r.status===200&&d.documents?.length===1&&d.documents[0].uploadStatus==="failed"&&d.documents[0].failureReason==="invalid_pdf",
+  "List single-document status contract mismatch: "+JSON.stringify(d));
+}
 const badDownload=await invoke("download",owner.token,{...body,documentId:bad.documentId});
 check(badDownload.status===404,"Rejected PDF is downloadable");
 const wrongSize=await initiate(pdf);
@@ -195,7 +204,7 @@ check(mismatch.status===422,`File size mismatch not rejected: ${mismatch.status}
 check(await status(wrongSize.documentId)==="failed","Size mismatch did not fail closed");
 const missing=await initiate(pdf);
 const missingResult=await invoke("upload-finalize",owner.token,{...body,documentId:missing.documentId});
-check(missingResult.status===409,"Missing quarantine object did not reject finalization");
+check(missingResult.status===422&&missingResult.data.failureReason==="upload_missing","Missing quarantine object did not reject finalization: "+JSON.stringify(missingResult));
 check(await status(missing.documentId)==="failed","Missing upload did not enter failed state");
 const replay=await invoke("upload-finalize",owner.token,body);
 check(replay.status===404||replay.status===409,"Completed document could be finalized twice");
@@ -239,6 +248,25 @@ check(docxResult.status===422,`Malformed DOCX accepted: ${JSON.stringify(docxRes
 check(await status(invalidDocx.documentId)==="failed","Malformed DOCX did not fail closed");
 check((await invoke("download",owner.token,{...body,documentId:invalidDocx.documentId})).status===404,
  "Malformed DOCX is downloadable");
+
+// D04-C: realistic synthetic PDF (object streams) and DOCX (ZIP data descriptors) complete the full lifecycle.
+if(Deno.env.get("TRIPP_INSPECTOR_POSITIVE_E2E")!=="true"){
+ for(const [name,kind] of [["proposal-objstm.pdf","pdf"],["loi-data-descriptor.docx","docx"]] as const){
+  const bytes=await Deno.readFile(new URL("../functions/tests/fixtures/"+name,import.meta.url));
+  const started=await invoke("upload-initiate",owner.token,{...input,filename:name,fileKind:kind,fileSizeBytes:bytes.length,documentType:kind==="pdf"?"landlord_proposal":"letter_of_intent"});
+  check(started.status===201&&started.data.uploadStatus==="pending"&&started.data.uploadPath===`${orgA}/${dealA}/${started.data.documentId}/quarantine.${kind}`,
+   "Initiate contract mismatch: "+JSON.stringify(started));
+  const put=await publicClient.storage.from(bucket).uploadToSignedUrl(started.data.uploadPath,started.data.uploadToken,bytes,{contentType:started.data.mimeType});
+  check(!put.error,`Corpus upload failed: ${put.error?.message}`);
+  const done=await invoke("upload-finalize",owner.token,{...body,documentId:started.data.documentId});
+  check(done.status===200&&done.data.uploadStatus==="ready",`Realistic ${name} not accepted: ${JSON.stringify(done)}`);
+  const dl=await invoke("download",viewer.token,{...body,documentId:started.data.documentId});
+  check(dl.status===200&&dl.data.filename===name&&typeof dl.data.url==="string",`Realistic ${name} download failed: ${JSON.stringify(dl)}`);
+  const fetched=new Uint8Array(await (await fetch(dl.data.url)).arrayBuffer());
+  check(fetched.length===bytes.length&&fetched.every((v,i)=>v===bytes[i]),`Downloaded ${name} differs from upload`);
+ }
+ console.log("D04-C realistic PDF/DOCX upload, finalize and byte-exact download passed");
+}
 
 // Reconciler must reject ordinary user credentials even when called from local CI.
 const reconcile=await fetch(base+"/functions/v1/deal-document-reconcile",{
@@ -322,9 +350,10 @@ check(!tamperedBindError&&tamperedBound,"Tampered fixture digest bind failed");
 const {error:tamperedExpireError}=await admin.from("deal_documents").update({finalize_lease_until:expiredTime}).eq("id",tamperedDoc.documentId);
 check(!tamperedExpireError,"Tampered fixture lease expiry failed");
 const tamperedReconcile=await runReconciler();
-check(tamperedReconcile.results?.some(r=>r.id===tamperedDoc.documentId&&r.outcome==="digest_mismatch_manual_review"),
- "Tampered same-size source was not rejected by reconciler");
-check(await status(tamperedDoc.documentId)==="processing","Tampered document was published");
+check(tamperedReconcile.results?.some(r=>r.id===tamperedDoc.documentId&&r.outcome==="digest_mismatch_rejected"),
+ "Tampered same-size source was not rejected by reconciler: "+JSON.stringify(tamperedReconcile));
+check(await status(tamperedDoc.documentId)==="failed","Tampered document was not failed closed");
+check((await invoke("download",owner.token,{...body,documentId:tamperedDoc.documentId})).status===404,"Tampered document downloadable");
 console.log("D04-B3.6 same-size source tampering rejected by SHA-256 recovery check");
 
 

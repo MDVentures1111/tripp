@@ -3,7 +3,7 @@ import { scanDocument } from "../_shared/malware-scanner.ts";
 import { auditDocumentEvent } from "../_shared/document-audit.ts";
 import { boundedReconcilerFetch } from "../_shared/reconciler-transport.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { validatePdf, validateDocx, MAX_DOCUMENT_BYTES } from "../_shared/file-validation.ts";
+import { checkDocument, MAX_DOCUMENT_BYTES } from "../_shared/file-validation.ts";
 
 const BUCKET = "tripp-deal-documents";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -29,7 +29,18 @@ Deno.serve(async (req) => {
     .eq("upload_status", "processing").lt("finalize_lease_until", cutoff).order("updated_at").limit(25);
   if (queryError) { auditDocumentEvent("reconciler_run",{outcome:"error",status:503,reason:"processing_query_failed"}); return respond(503, { error: "Query failed" }); }
   const results: Array<{ id: string; outcome: string }> = [];
+  // D04-C: bounded processing time. Documents stuck >24h (e.g. prolonged scanner outage)
+  // become failed/processing_timeout so the broker can re-upload.
+  const stuckCutoff = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+  const { data: stuck } = await admin.from("deal_documents").select("id")
+    .eq("upload_status", "processing").lt("created_at", stuckCutoff).lt("finalize_lease_until", new Date().toISOString()).limit(25);
+  const timedOut = new Set<string>();
+  for (const d of stuck ?? []) {
+    const { data: failed, error } = await admin.rpc("tripp_fail_stuck_processing", { p_id: d.id });
+    if (!error && failed) { timedOut.add(d.id); results.push({ id: d.id, outcome: "processing_timeout_failed" }); }
+  }
   for (const d of processing ?? []) {
+    if (timedOut.has(d.id)) continue;
     if(!withinBudget() || downloadBudget<d.file_size_bytes){results.push({id:d.id,outcome:"budget_deferred"});break;}
     downloadBudget-=d.file_size_bytes;
     const token = crypto.randomUUID();
@@ -38,20 +49,37 @@ Deno.serve(async (req) => {
     const ext = d.mime_type === "application/pdf" ? "pdf" :
       d.mime_type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ? "docx" : null;
     const expectedPath = ext && `${d.organization_id}/${d.deal_id}/${d.id}/source.${ext}`;
-    if (!UUID.test(d.id) || !expectedPath || d.storage_path !== expectedPath) {
+    if (!UUID.test(d.id) || !ext || !expectedPath || d.storage_path !== expectedPath) {
       results.push({ id: d.id, outcome: "invalid_binding_manual_review" }); continue;
     }
-    const { data: blob, error: storageError } = await admin.storage.from(BUCKET).download(expectedPath);
+    const quarantine = `${d.organization_id}/${d.deal_id}/${d.id}/quarantine.${ext}`;
+    const reject = async (reason: string, outcome: string) => {
+      const { data: rejected } = await admin.rpc("tripp_reject_document_finalize", { p_id: d.id, p_token: token, p_reason: reason });
+      if (rejected) await admin.storage.from(BUCKET).remove([quarantine]);
+      results.push({ id: d.id, outcome: rejected ? outcome : outcome + "_unrecorded" });
+    };
+    // Source exists when promotion happened before a crash; otherwise resume from quarantine
+    // (e.g. finalize deferred because the scanner was unavailable).
+    let fromQuarantine = false;
+    let { data: blob, error: storageError } = await admin.storage.from(BUCKET).download(expectedPath);
     if (storageError || !blob) {
-      // Do not mark failed automatically: source might be temporarily unavailable.
+      ({ data: blob, error: storageError } = await admin.storage.from(BUCKET).download(quarantine));
+      fromQuarantine = true;
+    }
+    if (storageError || !blob) {
+      // Do not fail automatically: storage might be temporarily unavailable. The 24h timeout bounds this.
       results.push({ id: d.id, outcome: "source_unavailable_retry_later" }); continue;
     }
-    if (blob.size > MAX_DOCUMENT_BYTES) { results.push({ id: d.id, outcome: "oversize_manual_review" }); continue; }
+    if (blob.size > MAX_DOCUMENT_BYTES) { await reject("file_too_large", "oversize_rejected"); continue; }
     const bytes = new Uint8Array(await blob.arrayBuffer());
-    const valid = bytes.length === d.file_size_bytes && (ext === "pdf" ? validatePdf(bytes) : validateDocx(bytes));
-    if (!valid) { results.push({ id: d.id, outcome: "validation_failed_manual_review" }); continue; }
+    if (bytes.length !== d.file_size_bytes) { await reject("size_mismatch", "size_mismatch_rejected"); continue; }
+    const validation = checkDocument(ext, bytes);
+    if (!validation.ok) { await reject(validation.reason, "validation_rejected"); continue; }
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))).map(v=>v.toString(16).padStart(2,'0')).join('');
-    if (!d.verified_sha256 || d.verified_sha256 !== digest) { results.push({id:d.id,outcome:'digest_mismatch_manual_review'}); continue; }
+    if (!d.verified_sha256) {
+      const { data: bound, error: bindError } = await admin.rpc("tripp_bind_document_digest", { p_id: d.id, p_token: token, p_digest: digest });
+      if (bindError || !bound) { results.push({ id: d.id, outcome: "digest_binding_failed" }); continue; }
+    } else if (d.verified_sha256 !== digest) { await reject("integrity_mismatch", "digest_mismatch_rejected"); continue; }
     // Recovery cannot mark READY without persisted clean scan evidence.
     const { data: scanRecord } = await admin.from("deal_documents").select("malware_scan_sha256").eq("id",d.id).single();
     if (scanRecord?.malware_scan_sha256 !== digest) {
@@ -60,21 +88,16 @@ Deno.serve(async (req) => {
       if (Deno.env.get("TRIPP_ENABLE_MALWARE_SCANNING") !== "verified" || !endpoint || !secret) {
         results.push({id:d.id,outcome:"scan_unavailable_retry_later"}); continue;
       }
-      try {
-        if (!withinBudget()) { results.push({id:d.id,outcome:"budget_deferred"}); break; }
-        const verdict = await scanDocument(bytes,digest,d.mime_type,{endpoint,secret});
-        if (verdict.verdict !== "clean") {
-          results.push({id:d.id,outcome:"scan_not_clean_manual_review"}); continue;
-        }
-        const {data:bound,error:scanError}=await admin.rpc("tripp_bind_document_clean_scan",{
-          p_id:d.id,p_token:token,p_digest:digest,p_engine:verdict.engine
-        });
-        if (scanError || !bound) {
-          results.push({id:d.id,outcome:"scan_binding_failed"}); continue;
-        }
-      } catch {
-        results.push({id:d.id,outcome:"scan_unavailable_retry_later"}); continue;
-      }
+      if (!withinBudget()) { results.push({id:d.id,outcome:"budget_deferred"}); break; }
+      let verdict;
+      try { verdict = await scanDocument(bytes,digest,d.mime_type,{endpoint,secret}); }
+      catch { results.push({id:d.id,outcome:"scan_unavailable_retry_later"}); continue; }
+      if (verdict.verdict === "malicious") { await reject("malware_detected", "malware_rejected"); continue; }
+      if (verdict.verdict !== "clean") { await reject("scan_inconclusive", "scan_inconclusive_rejected"); continue; }
+      const {data:bound,error:scanError}=await admin.rpc("tripp_bind_document_clean_scan",{
+        p_id:d.id,p_token:token,p_digest:digest,p_engine:verdict.engine
+      });
+      if (scanError || !bound) { results.push({id:d.id,outcome:"scan_binding_failed"}); continue; }
     }
     if (Deno.env.get("TRIPP_REQUIRE_CONTENT_INSPECTION") === "verified") {
       const endpoint = Deno.env.get("TRIPP_CONTENT_INSPECTOR_URL");
@@ -82,23 +105,23 @@ Deno.serve(async (req) => {
       if (!endpoint || !secret || !withinBudget()) {
         results.push({ id: d.id, outcome: "inspection_unavailable_retry_later" }); continue;
       }
-      try {
-        const inspection = await inspectDocument(bytes, digest, d.mime_type, { endpoint, secret });
-        if (!isInspectionCleared(inspection, digest)) {
-          results.push({ id: d.id, outcome: "inspection_not_safe_manual_review" }); continue;
-        }
-        const { data: bound, error: bindingError } = await admin.rpc("tripp_bind_document_content_inspection", { p_id: d.id, p_token: token, p_digest: digest, p_engine: inspection.engine, p_policy: inspection.policyVersion });
-        if (bindingError || !bound) { results.push({ id: d.id, outcome: "inspection_binding_failed" }); continue; }
-      } catch {
-        results.push({ id: d.id, outcome: "inspection_unavailable_retry_later" }); continue;
-      }
-      // Persisted attestation and DB READY gate are a separate mandatory release step.
+      let inspection;
+      try { inspection = await inspectDocument(bytes, digest, d.mime_type, { endpoint, secret }); }
+      catch { results.push({ id: d.id, outcome: "inspection_unavailable_retry_later" }); continue; }
+      if (!isInspectionCleared(inspection, digest)) { await reject("inspection_rejected", "inspection_rejected"); continue; }
+      const { data: bound, error: bindingError } = await admin.rpc("tripp_bind_document_content_inspection", { p_id: d.id, p_token: token, p_digest: digest, p_engine: inspection.engine, p_policy: inspection.policyVersion });
+      if (bindingError || !bound) { results.push({ id: d.id, outcome: "inspection_binding_failed" }); continue; }
+    }
+    if (fromQuarantine) {
+      const { data: leaseValid } = await admin.rpc("tripp_document_finalize_lease_valid", { p_id: d.id, p_token: token });
+      if (!leaseValid) { results.push({ id: d.id, outcome: "lease_expired_retry_later" }); continue; }
+      const { error: promoteError } = await admin.storage.from(BUCKET).upload(expectedPath, bytes, { contentType: d.mime_type, upsert: false });
+      if (promoteError) { results.push({ id: d.id, outcome: "promote_failed_retry_later" }); continue; }
     }
     const { data: finished, error: finishError } = await admin.rpc("tripp_finish_document_finalize", {
       p_id: d.id, p_token: token, p_success: true,
     });
     if (!finished || finishError) { results.push({ id: d.id, outcome: "finish_failed" }); continue; }
-    const quarantine = `${d.organization_id}/${d.deal_id}/${d.id}/quarantine.${ext}`;
     await admin.storage.from(BUCKET).remove([quarantine]);
     results.push({ id: d.id, outcome: "recovered_ready" });
   }

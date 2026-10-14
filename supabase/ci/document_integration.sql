@@ -141,6 +141,11 @@ BEGIN
  THEN RAISE EXCEPTION 'Authenticated role unexpectedly granted admission pruning'; END IF;
  IF has_function_privilege('anon','public.tripp_prune_document_admissions(integer)','EXECUTE')
  THEN RAISE EXCEPTION 'Anonymous role unexpectedly granted admission pruning'; END IF;
+ -- D04-C lifecycle RPCs are service-role only.
+ IF has_function_privilege('authenticated','public.tripp_reject_document_finalize(uuid,uuid,text)','EXECUTE')
+ OR has_function_privilege('anon','public.tripp_reject_document_finalize(uuid,uuid,text)','EXECUTE')
+ OR has_function_privilege('authenticated','public.tripp_fail_stuck_processing(uuid)','EXECUTE')
+ THEN RAISE EXCEPTION 'Browser role unexpectedly granted D04-C lifecycle RPC'; END IF;
 END $check$;
 RESET ROLE;
 SET LOCAL ROLE service_role;

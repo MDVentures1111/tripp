@@ -24,10 +24,10 @@ Deno.serve(async (req) => {
       !["landlord_proposal", "letter_of_intent", "other"].includes(b.documentType) ||
       b.filename.length > 255 || !b.filename.trim() || /[\\/\x00-\x1f\x7f]/.test(b.filename) ||
       !b.filename.toLowerCase().endsWith("." + kind.ext))
-    return json(req, { error: "Unsupported or invalid file." }, 400);
+    return json(req, { error: "Unsupported or invalid file.", code: "unsupported_file" }, 400);
   // Fail closed until signed-upload overwrite and restrictive-RLS behavior are tested.
   if (Deno.env.get("TRIPP_ENABLE_DOCUMENT_UPLOADS") !== "verified")
-    return json(req, { error: "Document uploads are not yet enabled." }, 503);
+    return json(req, { error: "Document uploads are not yet enabled.", code: "uploads_disabled" }, 503);
   try {
     const scope = await authorize(req, b.organizationId, b.dealId, true);
     if (scope instanceof Response) return scope;
@@ -55,6 +55,6 @@ Deno.serve(async (req) => {
       return json(req, { error: "Upload transport unavailable." }, 503);
     }
     auditDocumentEvent("upload_initiate",{organizationId:scope.orgId,userId:scope.userId,documentId,outcome:"issued",status:201});
-    return json(req, { documentId, uploadToken: data.token, uploadUrl: data.signedUrl, mimeType: kind.mime, expiresInSeconds: 7200 }, 201);
+    return json(req, { documentId, uploadStatus: "pending", bucket: "tripp-deal-documents", uploadPath: stagingPath, uploadToken: data.token, uploadUrl: data.signedUrl, mimeType: kind.mime, expiresInSeconds: 7200 }, 201);
   } catch { return json(req, { error: "Unexpected server error." }, 500); }
 });

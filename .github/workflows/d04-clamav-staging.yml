@@ -1,7 +1,7 @@
 name: Real ClamAV staging smoke
 on:
   push:
-    branches: [d04-b2-backend-foundation]
+    branches: [d04-b2-backend-foundation, d04-c-document-backend-mvp]
     paths: ['scanner/**', '.github/workflows/d04-clamav-staging.yml']
   workflow_dispatch:
 jobs:

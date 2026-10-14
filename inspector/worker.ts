@@ -2,7 +2,7 @@
  * Run in an OS-isolated worker without network, filesystem or subprocess access.
  * This is a deliberately narrow policy: unsupported features are indeterminate.
  */
-import { validatePdf, validateDocx } from "../supabase/functions/_shared/file-validation.ts";
+import { validatePdf, validateDocx } from "../supabase/functions/_shared/file-validation-strict.ts";
 export type WorkerVerdict = "safe" | "unsafe" | "indeterminate";
 const decoder = new TextDecoder();
 const forbiddenXml = /<!DOCTYPE|<!ENTITY|<\?xml-stylesheet|<\?mso-application/i;

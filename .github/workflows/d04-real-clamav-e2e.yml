@@ -1,7 +1,7 @@
 name: D04 Real ClamAV Application Integration
 on:
   push:
-    branches: [d04-b2-backend-foundation]
+    branches: [d04-b2-backend-foundation, d04-c-document-backend-mvp]
     paths: ['scanner/**', 'supabase/**', '.github/workflows/d04-real-clamav-e2e.yml']
   workflow_dispatch:
 permissions:
@@ -59,7 +59,7 @@ jobs:
         env:
           TRIPP_REAL_CLAMAV_E2E: 'true'
           TRIPP_E2E_SCANNER_SECRET: tripp-ci-scanner-secret-not-for-production-2026
-        run: deno run --node-modules-dir=auto --allow-env --allow-net supabase/ci/d04_b3_e2e.ts
+        run: deno run --node-modules-dir=auto --allow-env --allow-net --allow-read supabase/ci/d04_b3_e2e.ts
       - name: Print function diagnostics on failure
         if: failure()
         run: tail -100 /tmp/tripp-d04-functions.log || true

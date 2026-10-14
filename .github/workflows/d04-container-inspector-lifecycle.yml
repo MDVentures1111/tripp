@@ -1,7 +1,7 @@
 name: D04 Container Inspector Lifecycle
 on:
   push:
-    branches: [d04-b2-backend-foundation]
+    branches: [d04-b2-backend-foundation, d04-c-document-backend-mvp]
     paths: ['inspector/**','supabase/**','.github/workflows/d04-container-inspector-lifecycle.yml']
   workflow_dispatch:
 permissions:
@@ -70,11 +70,11 @@ jobs:
       - name: Exercise real upload and fail-closed inspection lifecycle
         env:
           TRIPP_INSPECTOR_LIFECYCLE_E2E: 'true'
-        run: deno run --node-modules-dir=auto --allow-env --allow-net supabase/ci/d04_b3_e2e.ts
+        run: deno run --node-modules-dir=auto --allow-env --allow-net --allow-read supabase/ci/d04_b3_e2e.ts
       - name: Verify canonical PDF clearance and persisted inspection evidence
         env:
           TRIPP_INSPECTOR_POSITIVE_E2E: 'true'
-        run: deno run --node-modules-dir=auto --allow-env --allow-net supabase/ci/d04_b3_e2e.ts
+        run: deno run --node-modules-dir=auto --allow-env --allow-net --allow-read supabase/ci/d04_b3_e2e.ts
       - name: Diagnostics on failure
         if: failure()
         run: |

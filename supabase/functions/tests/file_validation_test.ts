@@ -59,10 +59,11 @@ Deno.test("DOCX ZIP local header consistency and overlapping entries", () => {
  check(!validateDocx(expanded),"Oversized expanded ZIP entry accepted");
  const bomb=valid.slice();write32(bomb,centralStart+20,1);write32(bomb,centralStart+24,1000);
  check(!validateDocx(bomb),"Excessive compression ratio accepted");
+ // D04-C: data descriptors (flag bit 3) are produced by common exporters; the central directory is authoritative.
  const descriptor=valid.slice();write16(descriptor,centralStart+8,8);write16(descriptor,6,8);
- check(!validateDocx(descriptor),"Ambiguous ZIP data descriptor accepted");
- const mismatchedExtra=valid.slice();write16(mismatchedExtra,28,1);
- check(!validateDocx(mismatchedExtra),"Mismatched local extra field accepted");
+ check(validateDocx(descriptor),"Consistent ZIP data descriptor rejected");
+ const descriptorMismatch=valid.slice();write16(descriptorMismatch,centralStart+8,8);
+ check(!validateDocx(descriptorMismatch),"Local/central flag mismatch accepted");
  const offsetAttack=valid.slice();write32(offsetAttack,centralStart+42,0xfffffff0);
  check(!validateDocx(offsetAttack),"Out-of-bounds local header accepted");
 
@@ -71,8 +72,12 @@ Deno.test("DOCX ZIP local header consistency and overlapping entries", () => {
 Deno.test("B4-B.5 PDF adversarial markers and boundary cases", () => {
  const enc=new TextEncoder();
  const wrap=(s:string)=>enc.encode("%PDF-1.7\n1 0 obj\n"+s+"\nendobj\n%%EOF\n");
- for(const marker of ["/JavaScript","/JS","/OpenAction","/AA","/Launch","/EmbeddedFile","/RichMedia","/XFA","/AcroForm","/ObjStm","/Encrypt"]){
-  check(!validatePdf(wrap(marker)),"Active PDF marker accepted: "+marker);
+ for(const marker of ["/JavaScript","/JS","/Launch","/EmbeddedFile","/EmbeddedFiles","/RichMedia","/XFA","/Encrypt"]){
+  check(!validatePdf(wrap("<< "+marker+" 2 0 R >>")),"Active PDF marker accepted: "+marker);
+ }
+ // D04-C: ordinary features of real business PDFs are accepted.
+ for(const marker of ["/OpenAction","/AA","/AcroForm","/ObjStm"]){
+  check(validatePdf(wrap("<< "+marker+" 2 0 R >>")),"Ordinary PDF feature rejected: "+marker);
  }
  check(!validatePdf(wrap("safe").subarray(0,18)),"Truncated PDF accepted");
  check(!validatePdf(enc.encode("%PDF-1.7\n1 0 obj\n%%EOF\nTRAILING")),"Trailing PDF bytes accepted");
@@ -82,7 +87,7 @@ Deno.test("B4-B.5 PDF adversarial markers and boundary cases", () => {
 
 Deno.test("B4-B.5 obfuscated PDF name tokens are rejected", () => {
  const enc=new TextEncoder();
- for(const token of ["/J#61vaScript","/Open#41ction","/Em#62eddedFile","/Laun#63h","/J#53"]){
+ for(const token of ["/J#61vaScript","/Em#62eddedFile","/Laun#63h","/J#53","/Encr#79pt"]){
   const bytes=enc.encode("%PDF-1.7\n1 0 obj\n<< "+token+" 1 >>\nendobj\n%%EOF\n");
   check(!validatePdf(bytes),"Escaped active-content token accepted: "+token);
  }

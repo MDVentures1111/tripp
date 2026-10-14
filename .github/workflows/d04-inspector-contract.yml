@@ -1,7 +1,7 @@
 name: D04 Isolated Inspector Contract
 on:
   push:
-    branches: [d04-b2-backend-foundation]
+    branches: [d04-b2-backend-foundation, d04-c-document-backend-mvp]
     paths:
       - 'inspector/**'
       - '.github/workflows/d04-inspector-contract.yml'

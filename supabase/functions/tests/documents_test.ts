@@ -29,3 +29,12 @@ Deno.test("bounded JSON accepts valid small object", async () => {
   const parsed = await readJsonBody(req);
   assert(typeof parsed === "object" && parsed !== null && (parsed as { documentId?: string }).documentId === "ok", "body parsing failed");
 });
+
+Deno.test("D04-C: error responses always carry a machine-readable code", async () => {
+ const { json } = await import("../_shared/documents.ts");
+ const req = new Request("https://example.test", { headers: { origin: "https://evil.example" } });
+ const body = await json(req, { error: "Not found." }, 404).json();
+ if (body.code !== "not_found") throw new Error("missing default code");
+ const explicit = await json(req, { error: "x", code: "uploads_disabled" }, 503).json();
+ if (explicit.code !== "uploads_disabled") throw new Error("explicit code overwritten");
+});

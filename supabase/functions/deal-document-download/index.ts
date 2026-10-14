@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
     const scope = await authorize(req, input.organizationId, input.dealId);
     if (scope instanceof Response) return scope;
     const { data: doc, error } = await scope.admin.from("deal_documents")
-      .select("storage_path, upload_status, mime_type, verified_sha256, malware_scan_sha256, malware_scanned_at, content_inspection_sha256, content_inspection_engine, content_inspection_policy, content_inspected_at").eq("id", input.documentId)
+      .select("storage_path, original_filename, upload_status, mime_type, verified_sha256, malware_scan_sha256, malware_scanned_at, content_inspection_sha256, content_inspection_engine, content_inspection_policy, content_inspected_at").eq("id", input.documentId)
       .eq("organization_id", scope.orgId).eq("deal_id", scope.dealId).maybeSingle();
     if (error) return json(req, { error: "Service unavailable." }, 503);
     if (!doc || doc.upload_status !== "ready" || !doc.verified_sha256 || doc.malware_scan_sha256 !== doc.verified_sha256 || !doc.malware_scanned_at) return json(req, { error: "Not found." }, 404);
@@ -29,9 +29,9 @@ Deno.serve(async (req) => {
          !doc.content_inspection_engine || !doc.content_inspection_policy))
       return json(req, { error: "Document inspection attestation unavailable." }, 503);
     const { data: signed, error: signedError } = await scope.admin.storage.from("tripp-deal-documents")
-      .createSignedUrl(doc.storage_path, 60);
+      .createSignedUrl(doc.storage_path, 60, { download: doc.original_filename });
     if (signedError || !signed) return json(req, { error: "Document unavailable." }, 503);
-    return json(req, { url: signed.signedUrl, expiresInSeconds: 60 });
+    return json(req, { url: signed.signedUrl, expiresInSeconds: 60, filename: doc.original_filename, mimeType: doc.mime_type });
   } catch {
     return json(req, { error: "Unexpected server error." }, 500);
   }

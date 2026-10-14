@@ -1,0 +1,18 @@
+# D04-C: per-function gateway JWT settings. Applies to local dev and to `supabase functions deploy`
+# against the STAGING project only. Never link this repository to the production ref.
+project_id = "tripp"
+
+# Browser-facing endpoints: the Supabase gateway requires a valid user JWT, and each
+# function re-verifies the user and organization membership server-side.
+[functions.deal-document-upload-initiate]
+verify_jwt = true
+[functions.deal-document-upload-finalize]
+verify_jwt = true
+[functions.deal-document-list]
+verify_jwt = true
+[functions.deal-document-download]
+verify_jwt = true
+
+# Automation endpoint: authenticated by TRIPP_RECONCILER_SECRET (>= 32 chars), not a user JWT.
+[functions.deal-document-reconcile]
+verify_jwt = false

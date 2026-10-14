@@ -5,13 +5,27 @@ const publicKey = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PU
 const secretKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const allowedOrigins = (Deno.env.get("TRIPP_ALLOWED_ORIGINS") ?? "https://tripp-phi.vercel.app")
   .split(",").map((s) => s.trim()).filter(Boolean);
+// Entries may contain "*" wildcards matching one DNS label fragment ([a-z0-9-]+), e.g.
+// "https://tripp-*-mdventures.vercel.app" for Vercel preview deployments (staging only).
+const originPatterns = allowedOrigins.map((o) => o.includes("*")
+  ? new RegExp("^" + o.split("*").map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[a-z0-9-]+") + "$")
+  : null);
+export function isAllowedOrigin(origin: string | null): boolean {
+  if (!origin) return false;
+  return allowedOrigins.some((o, i) => originPatterns[i] ? originPatterns[i]!.test(origin) : o === origin);
+}
+const DEFAULT_CODES: Record<number, string> = {
+  400: "invalid_request", 401: "unauthenticated", 403: "forbidden", 404: "not_found",
+  405: "method_not_allowed", 409: "conflict", 413: "request_too_large", 422: "document_rejected",
+  429: "quota_exceeded", 500: "internal_error", 503: "service_unavailable",
+};
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export type Scope = { userId: string; orgId: string; dealId: string; role: "admin" | "member" | "viewer"; admin: ReturnType<typeof createClient<any, "public">> };
 
 function cors(req: Request): Headers {
   const origin = req.headers.get("origin");
   const h = new Headers({ "Vary": "Origin", "Cache-Control": "no-store" });
-  if (origin && allowedOrigins.includes(origin)) {
+  if (origin && isAllowedOrigin(origin)) {
     h.set("Access-Control-Allow-Origin", origin);
     h.set("Access-Control-Allow-Headers", "authorization, apikey, content-type, x-client-info");
     h.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -22,12 +36,15 @@ export function json(req: Request, data: unknown, status = 200): Response {
   const headers = cors(req);
   headers.set("Content-Type", "application/json; charset=utf-8");
   headers.set("X-Content-Type-Options", "nosniff");
+  // Every error carries a stable machine-readable `code` for the frontend contract.
+  if (data && typeof data === "object" && !Array.isArray(data) && "error" in data && !("code" in data))
+    data = { ...(data as Record<string, unknown>), code: DEFAULT_CODES[status] ?? "error" };
   return new Response(JSON.stringify(data), { status, headers });
 }
 export function preflight(req: Request): Response | null {
   if (req.method !== "OPTIONS") return null;
   const origin = req.headers.get("origin");
-  return new Response(null, { status: origin && !allowedOrigins.includes(origin) ? 403 : 204, headers: cors(req) });
+  return new Response(null, { status: origin && !isAllowedOrigin(origin) ? 403 : 204, headers: cors(req) });
 }
 /** Reject overlong bodies even when Content-Length is absent or falsified. */
 export async function readJsonBody(req: Request, maxBytes = 4096): Promise<unknown> {

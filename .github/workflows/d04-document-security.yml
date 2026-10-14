@@ -1,7 +1,7 @@
 name: D04 Document Security CI
 on:
   push:
-    branches: [d04-b2-backend-foundation]
+    branches: [d04-b2-backend-foundation, d04-c-document-backend-mvp]
     paths:
       - 'supabase/**'
       - 'inspector/**'
@@ -30,7 +30,7 @@ jobs:
         with:
           deno-version: v2.x
       - name: Run tests
-        run: deno test --node-modules-dir=auto --allow-env supabase/functions/tests/documents_test.ts supabase/functions/tests/file_validation_test.ts supabase/functions/tests/reconciler_transport_test.ts supabase/functions/tests/pdf_active_content_test.ts supabase/functions/tests/malware_scanner_test.ts supabase/functions/tests/content_inspector_test.ts inspector/worker_test.ts
+        run: deno test --node-modules-dir=auto --allow-env --allow-read supabase/functions/tests/fixture_corpus_test.ts supabase/functions/tests/documents_test.ts supabase/functions/tests/file_validation_test.ts supabase/functions/tests/reconciler_transport_test.ts supabase/functions/tests/pdf_active_content_test.ts supabase/functions/tests/malware_scanner_test.ts supabase/functions/tests/content_inspector_test.ts inspector/worker_test.ts
 
   local-supabase:
     name: Local Supabase migration smoke check
@@ -104,7 +104,7 @@ jobs:
           sleep 12
           if ! kill -0 $! 2>/dev/null; then cat /tmp/tripp-d04-functions.log; exit 1; fi
       - name: Run real HTTP Storage and Edge Function tests
-        run: deno run --node-modules-dir=auto --allow-env --allow-net supabase/ci/d04_b3_e2e.ts
+        run: deno run --node-modules-dir=auto --allow-env --allow-net --allow-read supabase/ci/d04_b3_e2e.ts
       - name: Print function diagnostics on failure
         if: failure()
         run: tail -100 /tmp/tripp-d04-functions.log || true
