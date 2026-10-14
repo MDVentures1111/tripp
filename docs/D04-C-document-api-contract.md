@@ -1,7 +1,7 @@
 # D04-C — Document API integration contract (for the vb.do frontend)
 
 Status: staging-ready backend on branch `d04-c-document-backend-mvp`. Not deployed to production.
-Contract version: `d04-c.1`.
+Contract version: `d04-c.2` (adds persisted-only FAILED semantics, scheduled expiry, staging-only preview CORS).
 
 ## 1. Base URL and authentication
 
@@ -20,8 +20,10 @@ Every request must send:
 `supabase.functions.invoke(name, { body })` sets the first two automatically. For the GET list endpoint use
 `fetch` (or `invoke` with `method: "GET"` and the query string in the name).
 
-The calling origin must be in `TRIPP_ALLOWED_ORIGINS` (server config). Staging can allow Vercel preview
-URLs with a wildcard entry such as `https://tripp-*-mdventures.vercel.app`.
+The calling origin must be in `TRIPP_ALLOWED_ORIGINS` (server config). Exact origins work in every
+environment. Vercel preview wildcards (for example `https://tripp-*-mdventures.vercel.app`) are honored
+**only** when the backend runs with `TRIPP_ENVIRONMENT=staging`; production ignores them. A preview
+build must therefore talk to the **staging** Supabase project, never production.
 
 **Authorization model.** The user must be a member of `organizationId`, and `dealId` must belong to that
 organization. Roles: `admin` and `member` can upload; `viewer` can list and download only. Anything the user
@@ -85,8 +87,8 @@ Only the user who initiated the upload may finalize it.
 | Status | Body | Meaning / UI |
 |---|---|---|
 | `200` | `{ documentId, uploadStatus: "ready" }` | Done. Show as available. |
-| `202` | `{ documentId, uploadStatus: "processing", retryable: true, message }` | Received; security checks still running (e.g. scanner busy). Show "Processing…" and poll. Do **not** call finalize again. |
-| `422` | `{ error, code: "document_rejected", documentId, uploadStatus: "failed", failureReason }` | Terminal. Show the reason message (§4). User may upload a corrected file. |
+| `202` | `{ documentId, uploadStatus: "processing", retryable: true, message }` | Received but not final yet: the scanner is busy, or a rejection hasn't been saved to the database yet. Show "Processing…" and poll. Do **not** call finalize again. |
+| `422` | `{ error, code: "document_rejected", documentId, uploadStatus: "failed", failureReason }` | Terminal, and the failed state is confirmed saved. Show the reason message (§5). The user may upload a corrected file. |
 | `409` | `{ error, code: "not_pending" \| "finalize_in_progress", documentId, uploadStatus? }` | Already finalized or in progress. Refresh status via list. |
 
 ## 3. `GET deal-document-list`
@@ -130,7 +132,27 @@ anything else returns 404.
 | `failed` | Terminal; see `failureReason` | "Failed – <reason>" |
 
 Transitions: `pending → processing → ready | failed`, or `pending → failed`. Terminal states never change.
-A document never stays `processing` longer than 24 hours (`processing_timeout`).
+The API reports `failed` only after that state is saved in the database.
+A database scheduler runs every 5 minutes, with no manual step. It fails uploads still `pending` after
+3 hours (`upload_abandoned`) and documents still `processing` after 24 hours (`processing_timeout`).
+It also triggers the reconciler, which finishes deferred scans.
+
+### Polling
+After a 202, poll `GET deal-document-list?…&documentId=…`:
+- every 3 seconds for the first minute,
+- then every 15 seconds until 5 minutes,
+- then every 60 seconds, or stop and let the next list refresh pick it up.
+
+Stop polling when the status is `ready` or `failed`. A scanner outage usually clears within 5–25 minutes,
+when the reconciler next runs.
+
+### Document types
+| `documentType` | Label |
+|---|---|
+| `landlord_proposal` | Landlord proposal |
+| `letter_of_intent` | Letter of intent |
+| `other` | Other |
+The type is set at upload and can't be changed later.
 
 ### `failureReason` values and suggested user messages
 

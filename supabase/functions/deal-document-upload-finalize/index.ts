@@ -3,6 +3,7 @@ import { scanDocument } from "../_shared/malware-scanner.ts";
 import { auditDocumentEvent } from "../_shared/document-audit.ts";
 import { authorize, json, preflight, readJsonBody, UUID } from "../_shared/documents.ts";
 import { checkDocument, MAX_DOCUMENT_BYTES } from "../_shared/file-validation.ts";
+import { persistRejection } from "../_shared/document-lifecycle.ts";
 
 const BUCKET = "tripp-deal-documents";
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -53,10 +54,22 @@ Deno.serve(async (req) => {
     const audit = (outcome: string, status: number, reason?: string) =>
       auditDocumentEvent("upload_finalize", { organizationId: scope.orgId, userId: scope.userId, documentId: doc.id, outcome, status, reason });
     const reject = async (reason: string, message: string) => {
-      const { data: rejected } = await scope.admin.rpc("tripp_reject_document_finalize", { p_id: doc.id, p_token: claimToken, p_reason: reason });
-      await scope.admin.storage.from(BUCKET).remove([quarantinePath]);
-      audit(rejected ? "rejected" : "reject_unrecorded", 422, reason);
-      return json(req, { error: message, code: "document_rejected", documentId: doc.id, uploadStatus: rejected ? "failed" : "processing", failureReason: reason }, 422);
+      const outcome = await persistRejection(reason, {
+        reject: () => scope.admin.rpc("tripp_reject_document_finalize", { p_id: doc.id, p_token: claimToken, p_reason: reason }),
+        readStatus: async () => {
+          const { data } = await scope.admin.from("deal_documents").select("upload_status, failure_reason").eq("id", doc.id).single();
+          return { status: data?.upload_status ?? null, reason: data?.failure_reason ?? null };
+        },
+        removeQuarantine: () => scope.admin.storage.from(BUCKET).remove([quarantinePath]),
+      });
+      if (outcome.persisted) {
+        audit("rejected", 422, reason);
+        return json(req, { error: message, code: "document_rejected", documentId: doc.id, uploadStatus: "failed", failureReason: outcome.failureReason }, 422);
+      }
+      // Never claim FAILED without a persisted state. The reconciler re-evaluates and finishes it.
+      audit("reject_unpersisted", 202, reason);
+      return json(req, { documentId: doc.id, uploadStatus: outcome.uploadStatus === "ready" ? "ready" : "processing", retryable: true,
+        message: "Document received; checks are still being finalized." }, outcome.uploadStatus === "ready" ? 200 : 202);
     };
     const deferred = (reason: string) => {
       audit("deferred", 202, reason);

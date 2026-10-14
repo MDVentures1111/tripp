@@ -321,8 +321,12 @@ check(!expiredError,`Expire recovery lease: ${expiredError?.message}`);
 const recoveryResults=await runReconciler();
 check(recoveryResults.results?.some(r=>r.id===recovering.documentId&&r.outcome==="recovered_ready"),
  `Reconciler failed valid-source recovery: ${JSON.stringify(recoveryResults)}`);
-check(recoveryResults.results?.some(r=>r.id===abandonedId&&r.outcome==="abandoned_failed"),
- `Reconciler failed abandoned upload: ${JSON.stringify(recoveryResults)}`);
+// The pg_cron expiry job (every 5 min) may fail it first; either path must end failed/upload_abandoned.
+{
+ const {data:ab}=await admin.from("deal_documents").select("upload_status,failure_reason").eq("id",abandonedId).single();
+ check(ab?.upload_status==="failed"&&ab?.failure_reason==="upload_abandoned",
+  `Abandoned upload not failed: ${JSON.stringify(ab)} ${JSON.stringify(recoveryResults)}`);
+}
 check(await status(recovering.documentId)==="ready","Recovered document not ready");
 check(await status(abandonedId)==="failed","Abandoned document not failed");
 const {data:oldWorkerResult,error:oldWorkerError}=await admin.rpc("tripp_finish_document_finalize",{

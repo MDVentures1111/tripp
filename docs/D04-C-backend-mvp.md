@@ -30,6 +30,11 @@ Scope: backend only. The vb.do team owns the frontend and integrates through `do
    - SQL privilege checks for the new RPCs.
    - CI workflows now trigger on this branch.
 
+## Readiness review fixes (d04-c.2)
+- Reconciliation runs automatically through pg_cron. Timeouts don't depend on HTTP, Vault or the scanner. CI asserts the jobs exist and that expiry never overtakes an active lease.
+- The API reports FAILED only after the database confirms it (`_shared/document-lifecycle.ts`). An unpersisted rejection returns 202 and keeps the quarantine bytes. The reconciler retries, and also fails definitively missing uploads as `upload_missing`.
+- CORS wildcards apply only when `TRIPP_ENVIRONMENT=staging`. They must have the form `https://<p>*<s>.vercel.app`, and anything else is ignored and logged.
+
 ## Unchanged by design
 - Malware scanning stays mandatory for READY, enforced in the DB.
 - The content-inspection system is not expanded and stays off (`TRIPP_REQUIRE_CONTENT_INSPECTION` unset).
@@ -45,7 +50,7 @@ Scope: backend only. The vb.do team owns the frontend and integrates through `do
    - `TRIPP_RECONCILER_SECRET`, at least 32 characters.
    - `TRIPP_ENABLE_RECONCILER=verified`
 3. Run `supabase functions deploy --project-ref <staging-ref>` for the five `deal-document-*` functions.
-4. Schedule the reconciler every 5 minutes (pg_cron + pg_net, or GitHub Actions cron) with the secret header.
+4. Scheduling is automatic. Migration `20261022` creates the pg_cron jobs `tripp-document-expiry` (pure SQL timeouts) and `tripp-document-reconciler` (pg_net to the Edge Function). Enable the reconciler call by storing two Vault secrets, `tripp_reconciler_url` and `tripp_reconciler_secret`. Also set `TRIPP_ENVIRONMENT=staging` so preview-origin wildcards are honored.
 5. Create synthetic admin, member, viewer and outsider users and two orgs. Run `staging_smoke_test.ts`, then upload the fixture corpus by hand.
 6. The frontend preview must point at the staging project URL and publishable key. This is a vb.do change: `src/lib/supabase.ts` currently hardcodes production.
 

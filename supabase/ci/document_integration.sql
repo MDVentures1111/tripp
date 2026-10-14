@@ -156,5 +156,58 @@ SELECT 1 / CASE WHEN public.tripp_admit_document_upload(gen_random_uuid(),
  '20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001')
  THEN 1 ELSE 0 END AS admission_assertion;
 RESET ROLE;
+-- D04-C: automatic reconciliation is scheduled in the database itself.
+DO $sched$
+BEGIN
+ IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname='tripp-document-expiry' AND active AND schedule='*/5 * * * *')
+ THEN RAISE EXCEPTION 'Expiry cron job not scheduled'; END IF;
+ IF NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname='tripp-document-reconciler' AND active AND schedule='*/5 * * * *')
+ THEN RAISE EXCEPTION 'Reconciler cron job not scheduled'; END IF;
+ IF public.tripp_invoke_document_reconciler() IS NOT NULL
+ THEN RAISE EXCEPTION 'Reconciler invoked without Vault configuration'; END IF;
+ IF has_function_privilege('authenticated','public.tripp_invoke_document_reconciler()','EXECUTE')
+ OR has_function_privilege('authenticated','public.tripp_expire_stale_documents(integer)','EXECUTE')
+ THEN RAISE EXCEPTION 'Browser role can run scheduler functions'; END IF;
+END $sched$;
+-- D04-C: timeouts are enforced without any HTTP call, and active leases are never overtaken.
+INSERT INTO public.deal_documents(id,organization_id,deal_id,document_type,original_filename,storage_path,mime_type,file_size_bytes,uploaded_by,upload_status,finalize_token,finalize_lease_until,created_at) VALUES
+ ('40000000-0000-4000-8000-0000000000c1','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','stuck.pdf','ci/c1/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001','processing',gen_random_uuid(),now()-interval '1 hour',now()-interval '25 hours'),
+ ('40000000-0000-4000-8000-0000000000c2','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','active.pdf','ci/c2/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001','processing',gen_random_uuid(),now()+interval '5 minutes',now()-interval '25 hours'),
+ ('40000000-0000-4000-8000-0000000000c3','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','abandoned.pdf','ci/c3/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001','pending',NULL,NULL,now()-interval '4 hours'),
+ ('40000000-0000-4000-8000-0000000000c4','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','recent.pdf','ci/c4/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001','processing',gen_random_uuid(),now()-interval '1 hour',now()-interval '2 hours');
+DO $expiry$
+BEGIN
+ PERFORM public.tripp_expire_stale_documents(500);
+ IF (SELECT upload_status||'/'||coalesce(failure_reason,'') FROM public.deal_documents WHERE id='40000000-0000-4000-8000-0000000000c1')<>'failed/processing_timeout'
+ THEN RAISE EXCEPTION 'Stuck processing document not timed out'; END IF;
+ IF (SELECT upload_status FROM public.deal_documents WHERE id='40000000-0000-4000-8000-0000000000c2')<>'processing'
+ THEN RAISE EXCEPTION 'Active lease was overtaken by expiry'; END IF;
+ IF (SELECT upload_status||'/'||coalesce(failure_reason,'') FROM public.deal_documents WHERE id='40000000-0000-4000-8000-0000000000c3')<>'failed/upload_abandoned'
+ THEN RAISE EXCEPTION 'Abandoned pending not failed'; END IF;
+ IF (SELECT upload_status FROM public.deal_documents WHERE id='40000000-0000-4000-8000-0000000000c4')<>'processing'
+ THEN RAISE EXCEPTION 'Recent processing document failed early'; END IF;
+END $expiry$;
+-- D04-C: terminal rejection persists only for the current lease holder; failure_reason is constrained.
+DO $reject$
+DECLARE t uuid := gen_random_uuid(); v_id uuid := '40000000-0000-4000-8000-0000000000c5';
+BEGIN
+ INSERT INTO public.deal_documents(id,organization_id,deal_id,document_type,original_filename,storage_path,mime_type,file_size_bytes,uploaded_by)
+ VALUES (v_id,'20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','r.pdf','ci/c5/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001');
+ IF NOT public.tripp_claim_document_finalize(v_id,'20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',t)
+ THEN RAISE EXCEPTION 'Reject fixture claim failed'; END IF;
+ IF public.tripp_reject_document_finalize(v_id,gen_random_uuid(),'invalid_pdf') THEN RAISE EXCEPTION 'Wrong-token rejection persisted'; END IF;
+ IF (SELECT upload_status FROM public.deal_documents WHERE id='40000000-0000-4000-8000-0000000000c5')<>'processing' THEN RAISE EXCEPTION 'Wrong-token rejection changed state'; END IF;
+ BEGIN
+  PERFORM public.tripp_reject_document_finalize(v_id,t,'not_a_reason');
+  RAISE EXCEPTION 'Invalid failure reason accepted';
+ EXCEPTION WHEN check_violation THEN NULL; END;
+ IF (SELECT upload_status FROM public.deal_documents WHERE id='40000000-0000-4000-8000-0000000000c5')<>'processing' THEN RAISE EXCEPTION 'Failed write left partial state'; END IF;
+ UPDATE public.deal_documents SET finalize_lease_until=now()-interval '1 minute' WHERE deal_documents.id='40000000-0000-4000-8000-0000000000c5';
+ IF public.tripp_reject_document_finalize(v_id,t,'invalid_pdf') THEN RAISE EXCEPTION 'Expired-lease rejection persisted'; END IF;
+ UPDATE public.deal_documents SET finalize_lease_until=now()+interval '5 minutes' WHERE deal_documents.id='40000000-0000-4000-8000-0000000000c5';
+ IF NOT public.tripp_reject_document_finalize(v_id,t,'invalid_pdf') THEN RAISE EXCEPTION 'Valid rejection not persisted'; END IF;
+ IF (SELECT upload_status||'/'||failure_reason FROM public.deal_documents WHERE id='40000000-0000-4000-8000-0000000000c5')<>'failed/invalid_pdf' THEN RAISE EXCEPTION 'Rejection state incorrect'; END IF;
+ IF public.tripp_reject_document_finalize(v_id,t,'invalid_pdf') THEN RAISE EXCEPTION 'Terminal rejection replayed'; END IF;
+END $reject$;
 ROLLBACK;
 \echo 'CI integration assertions passed'

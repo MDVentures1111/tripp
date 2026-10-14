@@ -3,16 +3,33 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const url = Deno.env.get("SUPABASE_URL") ?? "";
 const publicKey = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ?? "";
 const secretKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const allowedOrigins = (Deno.env.get("TRIPP_ALLOWED_ORIGINS") ?? "https://tripp-phi.vercel.app")
-  .split(",").map((s) => s.trim()).filter(Boolean);
-// Entries may contain "*" wildcards matching one DNS label fragment ([a-z0-9-]+), e.g.
-// "https://tripp-*-mdventures.vercel.app" for Vercel preview deployments (staging only).
-const originPatterns = allowedOrigins.map((o) => o.includes("*")
-  ? new RegExp("^" + o.split("*").map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[a-z0-9-]+") + "$")
-  : null);
-export function isAllowedOrigin(origin: string | null): boolean {
+const PRODUCTION_ORIGIN = "https://tripp-phi.vercel.app";
+/**
+ * CORS allow-list. Exact origins are always honored. Wildcard entries (Vercel previews)
+ * are honored ONLY when TRIPP_ENVIRONMENT=staging, and only in the narrow form
+ * https://<prefix>*<suffix>.vercel.app with a single "*" inside the first DNS label.
+ * Any other environment value (including unset, i.e. production) ignores wildcards,
+ * so production cannot inherit preview origins by copying staging secrets.
+ */
+export function parseAllowedOrigins(raw: string | undefined, environment: string | undefined) {
+  const entries = (raw ?? PRODUCTION_ORIGIN).split(",").map((s) => s.trim()).filter(Boolean);
+  const exact = new Set<string>();
+  const patterns: RegExp[] = [];
+  const ignored: string[] = [];
+  for (const entry of entries) {
+    if (!entry.includes("*")) { exact.add(entry); continue; }
+    const m = /^https:\/\/([a-z0-9-]*)\*([a-z0-9-]*)\.vercel\.app$/.exec(entry);
+    if (environment !== "staging" || !m) { ignored.push(entry); continue; }
+    patterns.push(new RegExp(`^https://${m[1]}[a-z0-9-]+${m[2]}\\.vercel\\.app$`));
+  }
+  return { exact, patterns, ignored };
+}
+const originPolicy = parseAllowedOrigins(Deno.env.get("TRIPP_ALLOWED_ORIGINS"), Deno.env.get("TRIPP_ENVIRONMENT"));
+if (originPolicy.ignored.length)
+  console.log(JSON.stringify({ schema: "tripp.document.audit.v1", event: "cors_config", outcome: "wildcards_ignored", count: originPolicy.ignored.length }));
+export function isAllowedOrigin(origin: string | null, policy = originPolicy): boolean {
   if (!origin) return false;
-  return allowedOrigins.some((o, i) => originPatterns[i] ? originPatterns[i]!.test(origin) : o === origin);
+  return policy.exact.has(origin) || policy.patterns.some((p) => p.test(origin));
 }
 const DEFAULT_CODES: Record<number, string> = {
   400: "invalid_request", 401: "unauthenticated", 403: "forbidden", 404: "not_found",

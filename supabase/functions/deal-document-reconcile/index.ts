@@ -4,6 +4,7 @@ import { auditDocumentEvent } from "../_shared/document-audit.ts";
 import { boundedReconcilerFetch } from "../_shared/reconciler-transport.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { checkDocument, MAX_DOCUMENT_BYTES } from "../_shared/file-validation.ts";
+import { persistRejection } from "../_shared/document-lifecycle.ts";
 
 const BUCKET = "tripp-deal-documents";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -54,9 +55,15 @@ Deno.serve(async (req) => {
     }
     const quarantine = `${d.organization_id}/${d.deal_id}/${d.id}/quarantine.${ext}`;
     const reject = async (reason: string, outcome: string) => {
-      const { data: rejected } = await admin.rpc("tripp_reject_document_finalize", { p_id: d.id, p_token: token, p_reason: reason });
-      if (rejected) await admin.storage.from(BUCKET).remove([quarantine]);
-      results.push({ id: d.id, outcome: rejected ? outcome : outcome + "_unrecorded" });
+      const r = await persistRejection(reason, {
+        reject: () => admin.rpc("tripp_reject_document_finalize", { p_id: d.id, p_token: token, p_reason: reason }),
+        readStatus: async () => {
+          const { data } = await admin.from("deal_documents").select("upload_status, failure_reason").eq("id", d.id).single();
+          return { status: data?.upload_status ?? null, reason: data?.failure_reason ?? null };
+        },
+        removeQuarantine: () => admin.storage.from(BUCKET).remove([quarantine]),
+      });
+      results.push({ id: d.id, outcome: r.persisted ? outcome : outcome + "_unpersisted_retry_later" });
     };
     // Source exists when promotion happened before a crash; otherwise resume from quarantine
     // (e.g. finalize deferred because the scanner was unavailable).
@@ -67,7 +74,10 @@ Deno.serve(async (req) => {
       fromQuarantine = true;
     }
     if (storageError || !blob) {
-      // Do not fail automatically: storage might be temporarily unavailable. The 24h timeout bounds this.
+      // Both objects definitively absent: the upload never arrived. Other storage errors may be
+      // transient and are retried (bounded by the 24h processing timeout).
+      const missing = /not.?found/i.test(String((storageError as { message?: string } | null)?.message ?? ""));
+      if (missing) { await reject("upload_missing", "upload_missing_rejected"); continue; }
       results.push({ id: d.id, outcome: "source_unavailable_retry_later" }); continue;
     }
     if (blob.size > MAX_DOCUMENT_BYTES) { await reject("file_too_large", "oversize_rejected"); continue; }
