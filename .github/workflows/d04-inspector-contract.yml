@@ -1,0 +1,49 @@
+name: D04 Isolated Inspector Contract
+on:
+  push:
+    branches: [d04-b2-backend-foundation]
+    paths:
+      - 'inspector/**'
+      - '.github/workflows/d04-inspector-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspector-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test worker with no permissions
+        run: deno test --no-check inspector/worker_test.ts
+      - name: Start gateway with minimal permissions
+        run: |
+          nohup env INSPECTOR_BEARER_SECRET=ci-only-inspector-secret-32-chars-minimum deno run --allow-net=127.0.0.1:8090 --allow-env=INSPECTOR_BEARER_SECRET,INSPECTOR_PORT inspector/gateway.ts >/tmp/inspector.log 2>&1 &
+          sleep 3
+          curl --fail-with-body --silent -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/inspect | grep -q '^404$'
+      - name: Exercise digest and fail-closed response
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,urllib.request,urllib.error
+          base="http://127.0.0.1:8090/inspect"
+          data=b"%PDF-1.4\n1 0 obj << /Type /Catalog >> endobj\n%%EOF"
+          digest=hashlib.sha256(data).hexdigest()
+          def call(headers):
+              req=urllib.request.Request(base,data=data,headers=headers,method="POST")
+              try:
+                  with urllib.request.urlopen(req,timeout=5) as r:return r.status,json.load(r)
+              except urllib.error.HTTPError as e:return e.code,json.load(e)
+          headers={"Authorization":"Bearer ci-only-inspector-secret-32-chars-minimum","Content-Type":"application/pdf","X-Content-SHA256":digest}
+          status,payload=call(headers)
+          assert status==200,(status,payload)
+          assert payload["verdict"]!="safe",payload
+          assert payload["sha256"]==digest,payload
+          bad=dict(headers);bad["X-Content-SHA256"]="0"*64
+          assert call(bad)[0]==422
+          noauth=dict(headers);del noauth["Authorization"]
+          assert call(noauth)[0]==401
+          print("Inspector contract tests passed")
+          PY
