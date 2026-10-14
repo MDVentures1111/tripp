@@ -12,7 +12,7 @@ const allowed=new Set(["application/pdf","application/vnd.openxmlformats-officed
 const response=(status:number,data:unknown)=>Response.json(data,{status,headers:{"cache-control":"no-store"}});
 const hex=(data:Uint8Array)=>Array.from(data,x=>x.toString(16).padStart(2,"0")).join("");
 let active=0;
-Deno.serve({hostname:"127.0.0.1",port:Number(Deno.env.get("INSPECTOR_PORT")??"8090")},async(req)=>{
+Deno.serve({hostname:Deno.env.get("INSPECTOR_HOST")??"127.0.0.1",port:Number(Deno.env.get("INSPECTOR_PORT")??"8090")},async(req)=>{
  if(req.method!=="POST"||new URL(req.url).pathname!=="/inspect")return response(404,{error:"not_found"});
  if(req.headers.get("authorization")!==`Bearer ${secret}`)return response(401,{error:"unauthorized"});
  const mime=req.headers.get("content-type")??"";
