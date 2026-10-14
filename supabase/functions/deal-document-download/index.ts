@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
     const scope = await authorize(req, input.organizationId, input.dealId);
     if (scope instanceof Response) return scope;
     const { data: doc, error } = await scope.admin.from("deal_documents")
-      .select("storage_path, upload_status, mime_type, verified_sha256, malware_scan_sha256, malware_scanned_at").eq("id", input.documentId)
+      .select("storage_path, upload_status, mime_type, verified_sha256, malware_scan_sha256, malware_scanned_at, content_inspection_sha256, content_inspection_engine, content_inspection_policy, content_inspected_at").eq("id", input.documentId)
       .eq("organization_id", scope.orgId).eq("deal_id", scope.dealId).maybeSingle();
     if (error) return json(req, { error: "Service unavailable." }, 503);
     if (!doc || doc.upload_status !== "ready" || !doc.verified_sha256 || doc.malware_scan_sha256 !== doc.verified_sha256 || !doc.malware_scanned_at) return json(req, { error: "Not found." }, 404);
@@ -24,9 +24,9 @@ Deno.serve(async (req) => {
       doc.mime_type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ? "docx" : null;
     if (!ext || doc.storage_path !== `${scope.orgId}/${scope.dealId}/${input.documentId}/source.${ext}`)
       return json(req, { error: "Document unavailable." }, 503);
-    // No persisted inspector attestation exists yet. Fail closed when inspection
-    // is required rather than treating an in-memory prior verdict as durable.
-    if (Deno.env.get("TRIPP_REQUIRE_CONTENT_INSPECTION") === "verified")
+    if (Deno.env.get("TRIPP_REQUIRE_CONTENT_INSPECTION") === "verified" &&
+        (doc.content_inspection_sha256 !== doc.verified_sha256 || !doc.content_inspected_at ||
+         !doc.content_inspection_engine || !doc.content_inspection_policy))
       return json(req, { error: "Document inspection attestation unavailable." }, 503);
     const { data: signed, error: signedError } = await scope.admin.storage.from("tripp-deal-documents")
       .createSignedUrl(doc.storage_path, 60);
