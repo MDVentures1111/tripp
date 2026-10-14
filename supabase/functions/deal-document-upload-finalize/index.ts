@@ -84,6 +84,8 @@ Deno.serve(async (req) => {
         });
         if (!isInspectionCleared(inspection, digest))
           return json(req, { error: "Document not cleared by content inspector." }, 422);
+        const { data: inspectionBound, error: inspectionError } = await scope.admin.rpc("tripp_bind_document_content_inspection", { p_id: doc.id, p_token: claimToken, p_digest: digest, p_engine: inspection.engine, p_policy: inspection.policyVersion });
+        if (inspectionError || !inspectionBound) return json(req, { error: "Inspection evidence could not be recorded." }, 503);
       } catch {
         return json(req, { error: "Document inspector unavailable; reconciliation required." }, 503);
       }
