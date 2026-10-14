@@ -35,7 +35,7 @@ is not allowed to see returns **404** (never 403), so the UI should treat 404 as
 1. POST deal-document-upload-initiate      -> 201 { documentId, uploadPath, uploadToken, ... }
 2. supabase.storage.from(bucket).uploadToSignedUrl(uploadPath, uploadToken, file, { contentType: mimeType })
 3. POST deal-document-upload-finalize      -> 200 ready | 202 processing | 422 failed
-4. If 202: poll GET deal-document-list?documentId=... every 3–5 s (max ~2 min, then every 30 s)
+4. If 202: poll GET deal-document-list?documentId=... (cadence in §5 Polling)
 5. Download: POST deal-document-download -> { url } -> open url immediately (expires in 60 s)
 ```
 
