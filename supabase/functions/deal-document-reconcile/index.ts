@@ -87,6 +87,8 @@ Deno.serve(async (req) => {
         if (!isInspectionCleared(inspection, digest)) {
           results.push({ id: d.id, outcome: "inspection_not_safe_manual_review" }); continue;
         }
+        const { data: bound, error: bindingError } = await admin.rpc("tripp_bind_document_content_inspection", { p_id: d.id, p_token: token, p_digest: digest, p_engine: inspection.engine, p_policy: inspection.policyVersion });
+        if (bindingError || !bound) { results.push({ id: d.id, outcome: "inspection_binding_failed" }); continue; }
       } catch {
         results.push({ id: d.id, outcome: "inspection_unavailable_retry_later" }); continue;
       }
