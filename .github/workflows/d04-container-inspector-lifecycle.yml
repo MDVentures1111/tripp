@@ -1,0 +1,63 @@
+name: D04 Container Inspector Lifecycle
+on:
+  push:
+    branches: [d04-b2-backend-foundation]
+    paths: ['inspector/**','supabase/**','.github/workflows/d04-container-inspector-lifecycle.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  container-inspector-lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v3.0.1
+        with:
+          version: 2.120.0
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Start isolated Supabase
+        run: |
+          cp supabase/ci/bootstrap_organizations.sql supabase/migrations/20261009000000_ci_bootstrap_organizations.sql
+          supabase start --exclude studio,imgproxy,logflare,vector,supavisor
+      - name: Start isolated mock ClamAV and containerized inspector
+        run: |
+          nohup deno run --allow-net supabase/ci/mock_malware_scanner.ts >/tmp/tripp-scanner.log 2>&1 &
+          docker build -f inspector/Dockerfile -t tripp-inspector:ci .
+          docker run -d --name tripp-inspector-ci --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m --cap-drop=ALL --security-opt=no-new-privileges --pids-limit=64 --memory=256m --cpus=1 --user=deno -e INSPECTOR_BEARER_SECRET=ci-inspector-secret-only-32-characters-minimum -p 127.0.0.1:8090:8090 tripp-inspector:ci
+          sleep 4
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8090/inspect)" = 401
+          docker inspect -f '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.Privileged}} {{.HostConfig.PidsLimit}}' tripp-inspector-ci | grep -q '^true false 64$'
+      - name: Configure local Edge Functions
+        run: |
+          GATEWAY=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' supabase_edge_runtime_tripp | grep -oE '^[0-9]+(\.[0-9]+){3}')
+          test -n "$GATEWAY"
+          supabase status -o env >/tmp/tripp-supabase-status.env
+          set -a
+          . /tmp/tripp-supabase-status.env
+          set +a
+          printf 'SUPABASE_URL=http://127.0.0.1:54321\nSUPABASE_ANON_KEY=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\nTRIPP_ENABLE_DOCUMENT_UPLOADS=verified\nTRIPP_ENABLE_RECONCILER=verified\nTRIPP_RECONCILER_SECRET=tripp-ci-local-reconciler-secret-only-2026\nTRIPP_ALLOWED_ORIGINS=http://127.0.0.1:54321\nTRIPP_ENABLE_MALWARE_SCANNING=verified\nTRIPP_MALWARE_SCANNER_URL=http://%s:8080/scan\nTRIPP_CI_SCANNER_FIXTURE=isolated\nTRIPP_MALWARE_SCANNER_SECRET=tripp-ci-scanner-secret-not-for-production-2026\nTRIPP_REQUIRE_CONTENT_INSPECTION=verified\nTRIPP_CI_INSPECTOR_FIXTURE=isolated\nTRIPP_CONTENT_INSPECTOR_URL=http://%s:8090/inspect\nTRIPP_CONTENT_INSPECTOR_SECRET=ci-inspector-secret-only-32-characters-minimum\n' "$ANON_KEY" "$SERVICE_ROLE_KEY" "$GATEWAY" "$GATEWAY" >/tmp/tripp-inspector-e2e.env
+          echo "TRIPP_E2E_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
+          echo "TRIPP_E2E_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://$GATEWAY:8090/inspect)" = 401
+      - name: Serve Edge Functions
+        run: |
+          nohup supabase functions serve --no-verify-jwt --env-file /tmp/tripp-inspector-e2e.env >/tmp/tripp-inspector-functions.log 2>&1 &
+          sleep 12
+      - name: Exercise real upload and fail-closed inspection lifecycle
+        env:
+          TRIPP_INSPECTOR_LIFECYCLE_E2E: 'true'
+        run: deno run --node-modules-dir=auto --allow-env --allow-net supabase/ci/d04_b3_e2e.ts
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          tail -100 /tmp/tripp-inspector-functions.log || true
+          docker logs tripp-inspector-ci || true
+          tail -100 /tmp/tripp-scanner.log || true
+      - name: Cleanup
+        if: always()
+        run: |
+          supabase stop --no-backup || true
+          docker rm -f tripp-inspector-ci || true
