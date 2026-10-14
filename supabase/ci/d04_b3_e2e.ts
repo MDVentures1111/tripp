@@ -1,3 +1,4 @@
+import { canonicalBlankPdf } from "../../inspector/worker.ts";
 // D04-B3: isolated local Supabase HTTP authorization checks; no production URLs.
 import { createClient } from "npm:@supabase/supabase-js@2";
 const base="http://127.0.0.1:54321";
@@ -36,7 +37,7 @@ async function invoke(name:string,token:string,body:unknown,method="POST"){
  return {status:response.status,data:await response.json().catch(()=>({}))};
 }
 function check(ok:boolean,message:string){if(!ok)throw Error(message)}
-const pdf=new TextEncoder().encode("%PDF-1.4\n1 0 obj\n%%EOF\n");
+const pdf=Deno.env.get("TRIPP_INSPECTOR_POSITIVE_E2E")==="true"?canonicalBlankPdf():new TextEncoder().encode("%PDF-1.4\n1 0 obj\n%%EOF\n");
 const input={organizationId:orgA,dealId:dealA,filename:"ci.pdf",documentType:"other",fileKind:"pdf",fileSizeBytes:pdf.length};
 const viewerResponse=await invoke("upload-initiate",viewer.token,input);
 console.log("D04-B3.1 viewer upload response",JSON.stringify(viewerResponse));
@@ -71,6 +72,13 @@ check(download.status===200&&typeof download.data.url==="string","Viewer downloa
 const {error:directError}=await publicClient.storage.from(bucket).download(`${orgA}/${dealA}/${documentId}/source.pdf`);
 check(!!directError,"Anonymous direct Storage download unexpectedly permitted");
 console.log("D04-B3 local HTTP authorization, signed upload, finalize, and download passed");
+if(Deno.env.get("TRIPP_INSPECTOR_POSITIVE_E2E")==="true"){
+ const {data:attestation,error:attestationError}=await admin.from("deal_documents").select("upload_status,verified_sha256,content_inspection_sha256,content_inspection_engine,content_inspection_policy,content_inspected_at").eq("id",documentId).single();
+ check(!attestationError&&attestation?.upload_status==="ready"&&attestation?.verified_sha256===attestation?.content_inspection_sha256&&!!attestation?.content_inspection_engine&&!!attestation?.content_inspection_policy&&!!attestation?.content_inspected_at,"Positive inspector attestation not persisted");
+ console.log("Positive canonical PDF cleared with persisted digest-bound evidence and authorized download");
+ Deno.exit(0);
+}
+
 
 
 // B4-B.2.1: CI fixture verdicts must fail closed, including download denial.
