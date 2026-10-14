@@ -52,6 +52,17 @@ jobs:
           echo "TRIPP_E2E_ANON_KEY=$ANON_KEY" >> "$GITHUB_ENV"
           echo "TRIPP_E2E_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY" >> "$GITHUB_ENV"
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://$GATEWAY:8090/inspect)" = 401
+          # Confirm an authenticated digest-bound request reaches the real container.
+          INSPECTOR_GATEWAY="$GATEWAY" python3 - <<'PY'
+          import hashlib,json,os,urllib.request
+          data=b"%PDF-1.4\\n1 0 obj\\n%%EOF\\n"
+          headers={"Authorization":"Bearer ci-inspector-secret-only-32-characters-minimum","Content-Type":"application/pdf","X-Content-SHA256":hashlib.sha256(data).hexdigest()}
+          req=urllib.request.Request("http://"+os.environ["INSPECTOR_GATEWAY"]+":8090/inspect",data=data,headers=headers,method="POST")
+          with urllib.request.urlopen(req,timeout=8) as response:
+              result=json.load(response)
+              assert response.status==200 and result["verdict"]!="safe",result
+          print("Inspector gateway reachable and verdict fail-closed")
+          PY
       - name: Serve Edge Functions
         run: |
           nohup supabase functions serve --no-verify-jwt --env-file /tmp/tripp-inspector-e2e.env >/tmp/tripp-inspector-functions.log 2>&1 &
