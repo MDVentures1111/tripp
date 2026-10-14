@@ -71,6 +71,10 @@ jobs:
         env:
           TRIPP_INSPECTOR_LIFECYCLE_E2E: 'true'
         run: deno run --node-modules-dir=auto --allow-env --allow-net supabase/ci/d04_b3_e2e.ts
+      - name: Verify canonical PDF clearance and persisted inspection evidence
+        env:
+          TRIPP_INSPECTOR_POSITIVE_E2E: 'true'
+        run: deno run --node-modules-dir=auto --allow-env --allow-net supabase/ci/d04_b3_e2e.ts
       - name: Diagnostics on failure
         if: failure()
         run: |
