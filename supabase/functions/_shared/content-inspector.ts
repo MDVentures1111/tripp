@@ -33,7 +33,7 @@ export async function inspectDocument(
   let url: URL;
   try { url = new URL(config.endpoint); } catch { throw new InspectionUnavailable("Invalid inspector URL"); }
   // Production requires HTTPS; loopback HTTP is permitted for isolated CI.
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname)))
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && (["127.0.0.1", "localhost"].includes(url.hostname) || (Deno.env.get("TRIPP_CI_INSPECTOR_FIXTURE") === "isolated" && /^172\\.(?:1[6-9]|2[0-9]|3[01])\\.\\d{1,3}\\.\\d{1,3}$/.test(url.hostname)))))
     throw new InspectionUnavailable("Inspector must use HTTPS");
   if (!config.secret || config.secret.length < 32) throw new InspectionUnavailable("Invalid inspector secret");
   const timeoutMs = Math.min(Math.max(config.timeoutMs ?? 15000, 1000), 30000);
