@@ -10,7 +10,37 @@ const forbiddenRel = /TargetMode\s*=\s*["']External["']|(?:https?:|file:|javascr
 const forbiddenPdf = /\/(?:JS|JavaScript|AA|OpenAction|Launch|EmbeddedFile|RichMedia|XFA|AcroForm|ObjStm|Encrypt)(?![A-Za-z0-9])/i;
 const u16=(b:Uint8Array,p:number)=>b[p]+b[p+1]*256;
 const u32=(b:Uint8Array,p:number)=>((b[p]+b[p+1]*256+b[p+2]*65536+b[p+3]*16777216)>>>0);
+
+// B4-B.6: certified minimal PDF profile. Byte-for-byte canonical grammar,
+// fixed objects, no streams, filters, attachments, annotations, actions,
+// extensions, alternate encodings or incremental updates. This is deliberately
+// NOT a general PDF parser; unsupported PDFs remain indeterminate.
+export function canonicalBlankPdf(): Uint8Array {
+ const enc=new TextEncoder();
+ let s="%PDF-1.4\n";
+ const offsets:number[]=[0];
+ const objects=[
+  "<< /Type /Catalog /Pages 2 0 R >>",
+  "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+  "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> >>",
+ ];
+ for(let i=0;i<objects.length;i++){
+  offsets.push(enc.encode(s).length);
+  s+=(i+1)+" 0 obj\n"+objects[i]+"\nendobj\n";
+ }
+ const xref=enc.encode(s).length;
+ s+="xref\n0 4\n0000000000 65535 f \n";
+ for(const offset of offsets.slice(1))s+=String(offset).padStart(10,"0")+" 00000 n \n";
+ s+="trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n"+xref+"\n%%EOF\n";
+ return enc.encode(s);
+}
+function matchesCanonicalBlankPdf(bytes:Uint8Array):boolean {
+ const expected=canonicalBlankPdf();
+ return bytes.length===expected.length&&bytes.every((value,i)=>value===expected[i]);
+}
+
 function pdf(b:Uint8Array):WorkerVerdict {
+ if(matchesCanonicalBlankPdf(b))return "safe";
  if(!validatePdf(b)) return "unsafe";
  const s=decoder.decode(b);
  if(forbiddenPdf.test(s)) return "unsafe";
