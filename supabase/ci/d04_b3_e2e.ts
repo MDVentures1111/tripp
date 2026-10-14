@@ -262,7 +262,10 @@ if(Deno.env.get("TRIPP_INSPECTOR_POSITIVE_E2E")!=="true"){
   check(done.status===200&&done.data.uploadStatus==="ready",`Realistic ${name} not accepted: ${JSON.stringify(done)}`);
   const dl=await invoke("download",viewer.token,{...body,documentId:started.data.documentId});
   check(dl.status===200&&dl.data.filename===name&&typeof dl.data.url==="string",`Realistic ${name} download failed: ${JSON.stringify(dl)}`);
-  const fetched=new Uint8Array(await (await fetch(dl.data.url)).arrayBuffer());
+  // Locally the Edge Runtime signs URLs with its internal gateway host (kong:8000); map it to the public base.
+  const signed=new URL(dl.data.url);const publicBase=new URL(base);
+  if(signed.hostname==="kong"){signed.protocol=publicBase.protocol;signed.host=publicBase.host;}
+  const fetched=new Uint8Array(await (await fetch(signed)).arrayBuffer());
   check(fetched.length===bytes.length&&fetched.every((v,i)=>v===bytes[i]),`Downloaded ${name} differs from upload`);
  }
  console.log("D04-C realistic PDF/DOCX upload, finalize and byte-exact download passed");
