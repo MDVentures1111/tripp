@@ -25,7 +25,17 @@ jobs:
       - name: Start isolated mock ClamAV and containerized inspector
         run: |
           nohup deno run --allow-net supabase/ci/mock_malware_scanner.ts >/tmp/tripp-scanner.log 2>&1 &
-          docker build -f inspector/Dockerfile -t tripp-inspector:ci .
+          # Retry only the transient registry/build failure; never skip sandbox checks.
+          built=0
+          for attempt in 1 2 3 4; do
+            if docker build --pull -f inspector/Dockerfile -t tripp-inspector:ci .; then
+              built=1
+              break
+            fi
+            echo "Container build attempt $attempt failed; retrying after backoff"
+            sleep $((attempt * 15))
+          done
+          test "$built" = 1
           docker run -d --name tripp-inspector-ci --read-only --tmpfs /tmp:rw,noexec,nosuid,size=8m --cap-drop=ALL --security-opt=no-new-privileges --pids-limit=64 --memory=256m --cpus=1 --user=deno -e INSPECTOR_BEARER_SECRET=ci-inspector-secret-only-32-characters-minimum -p 8090:8090 tripp-inspector:ci
           sleep 4
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8090/inspect)" = 401
