@@ -21,7 +21,7 @@ jobs:
         run: deno test --no-check inspector/worker_test.ts
       - name: Start gateway with minimal permissions
         run: |
-          nohup env INSPECTOR_BEARER_SECRET=ci-only-inspector-secret-32-chars-minimum deno run --allow-net=127.0.0.1:8090 --allow-env=INSPECTOR_BEARER_SECRET,INSPECTOR_PORT inspector/gateway.ts >/tmp/inspector.log 2>&1 &
+          nohup env INSPECTOR_BEARER_SECRET=ci-only-inspector-secret-32-chars-minimum deno run --allow-net=127.0.0.1:8090 --allow-env=INSPECTOR_BEARER_SECRET,INSPECTOR_PORT,INSPECTOR_HOST inspector/gateway.ts >/tmp/inspector.log 2>&1 &
           sleep 3
           curl --fail-with-body --silent -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/inspect | grep -q '^404$'
       - name: Exercise digest and fail-closed response
