@@ -54,6 +54,14 @@ const {error:uploadError}=await publicClient.storage.from(bucket).uploadToSigned
 check(!uploadError,"Signed upload: "+uploadError?.message);
 const body={organizationId:orgA,dealId:dealA,documentId};
 const finalize=await invoke("upload-finalize",owner.token,body);
+if(Deno.env.get("TRIPP_INSPECTOR_LIFECYCLE_E2E")==="true"){
+ check(finalize.status===422,"Conservative inspector must deny promotion: "+finalize.status+" "+JSON.stringify(finalize.data));
+ const {data:state,error:stateError}=await admin.from("deal_documents").select("upload_status,content_inspection_sha256").eq("id",documentId).single();
+ check(!stateError&&state?.upload_status!=="ready"&&!state?.content_inspection_sha256,"Uncleared document obtained READY or inspection attestation");
+ check((await invoke("download",owner.token,body)).status===404,"Uncleared document downloadable");
+ console.log("Containerized inspector lifecycle: upload succeeded, inspection denied, no READY, no download");
+ Deno.exit(0);
+}
 check(finalize.status===200,`Finalize: ${finalize.status} ${JSON.stringify(finalize.data)}`);
 const list=await invoke("list",viewer.token,{},"GET");
 check(list.status===200&&list.data.documents?.some((d:{id:string})=>d.id===documentId),"Viewer list failed");
