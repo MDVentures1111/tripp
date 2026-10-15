@@ -1,0 +1,1 @@
+{ "private": true, "type": "module", "description": "Offline smoke test for D04-C.4 inspection SQL (PGlite, no network DB)", "dependencies": { "@electric-sql/pglite": "0.2.17" } }
