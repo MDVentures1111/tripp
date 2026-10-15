@@ -25,8 +25,9 @@ Deno.serve(async (req) => {
   if (!deal) return respond(404, { error: "Deal not found" });
   const { data: membership, error: membershipError } = await db.from("organization_memberships").select("id").eq("organization_id", deal.organization_id).eq("user_id", identity.user.id).maybeSingle();
   if (membershipError || !membership) return respond(403, { error: "Organization access denied" });
-  // Fail closed until a durable per-user usage limiter is installed.
-  if (Deno.env.get("TRIPP_AI_RATE_LIMIT_READY") !== "true") return respond(503, { error: "AI rate limiter is not configured" });
+  const { data: quotaAllowed, error: quotaError } = await db.rpc("consume_deal_ai_quota");
+  if (quotaError) return respond(503, { error: "AI usage control unavailable" });
+  if (quotaAllowed !== true) return respond(429, { error: "Daily AI analysis limit reached" });
   const facts = { deal_name: deal.deal_name, tenant_name: deal.tenant_name, deal_type: deal.deal_type, status: deal.status, market: deal.market, target_square_feet: deal.target_square_feet, notes: String(deal.notes ?? "").slice(0, 3000) };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
