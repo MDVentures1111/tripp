@@ -1,5 +1,9 @@
 import { canonicalBlankPdf } from "../../inspector/worker.ts";
 // D04-B3: isolated local Supabase HTTP authorization checks; no production URLs.
+for(const ev of ["error","unhandledrejection"]) globalThis.addEventListener(ev,(e:Event)=>{
+ const err=(e as ErrorEvent).error??(e as PromiseRejectionEvent).reason;
+ console.log("::error title=D04 E2E uncaught::"+String(err?.message??err).replace(/[\r\n]+/g," ").slice(0,900));
+});
 import { createClient } from "npm:@supabase/supabase-js@2";
 const base="http://127.0.0.1:54321";
 const anon=Deno.env.get("TRIPP_E2E_ANON_KEY") ?? "";
