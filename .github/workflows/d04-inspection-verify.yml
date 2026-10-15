@@ -83,3 +83,37 @@ jobs:
       - name: Shut down isolated stack
         if: always()
         run: supabase stop --no-backup
+
+  sql-editor-path:
+    name: SQL Editor package (single-submission, postgres-meta, Studio route, importer, share builder)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify pinned artifact checksums
+        working-directory: supabase/inspection/d04c4
+        run: sha256sum -c SHA256SUMS
+      - name: Assert no production link or credentials
+        run: |
+          test ! -e supabase/.temp/project-ref
+          for v in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_REF DATABASE_URL PGPASSWORD; do
+            if [ -n "${!v:-}" ]; then echo "::error::$v is set"; exit 1; fi
+          done
+          if grep -rqn "ufcgsdpqfqeifjzzcuei" supabase/inspection/d04c4/ci supabase/inspection/d04c4/operator supabase/inspection/d04c4/editor; then echo "::error::production ref in CI/operator/editor files"; exit 1; fi
+      - uses: supabase/setup-cli@v3.0.1
+        with:
+          version: 2.120.0
+      - name: Prepare CI-only schema prerequisites
+        run: cp supabase/ci/bootstrap_organizations.sql supabase/migrations/20261009000000_ci_bootstrap_organizations.sql
+      - name: Start isolated local Supabase stack (Studio and postgres-meta included)
+        run: supabase start --exclude imgproxy,logflare,vector,supavisor
+      - name: Run SQL Editor package verification
+        run: |
+          supabase status -o env > "$RUNNER_TEMP/st.env"
+          set -a; . "$RUNNER_TEMP/st.env"; set +a
+          echo "::add-mask::${SERVICE_ROLE_KEY:-none}"
+          rm -f "$RUNNER_TEMP/st.env"
+          API_URL="$API_URL" STUDIO_URL="$STUDIO_URL" SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" python3 supabase/inspection/d04c4/ci/editor_path.py
+      - name: Shut down isolated stack
+        if: always()
+        run: supabase stop --no-backup
