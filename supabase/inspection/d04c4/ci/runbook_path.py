@@ -153,6 +153,7 @@ def main():
         pass
     if not reachable:
         print(f"[INFO] R5.session-pooler NOT REPRODUCED: nothing listening on {POOLER_PORT}")
+        print(f"::notice title=R5 session pooler::NOT REPRODUCED (nothing listening on {POOLER_PORT})")
     else:
         used = None
         for u in POOLER_USERS:
@@ -162,10 +163,12 @@ def main():
                 used = u; break
         if used is None:
             print("[INFO] R5.session-pooler NOT REPRODUCED: local pooler rejected every tenant user tried")
+            print("::notice title=R5 session pooler::NOT REPRODUCED (pooler rejected every tenant user tried)")
         else:
             po = os.path.join(WORK, "pooler", "out"); os.makedirs(po)
             full_run("R5.pooler", f"host=127.0.0.1 port={POOLER_PORT} dbname=postgres user={used} sslmode=disable connect_timeout=10", po)
             _, vout = validate(po, "qid")
+            print(f"::notice title=R5 session pooler::REPRODUCED via local supavisor, tenant user {used}")
             check("R5.pooler-session-controls-persisted", "OK    qid: session default_transaction_read_only = on" in vout
                   and "OK    qid: session search_path" in vout, f"tenant user {used}")
 
@@ -198,6 +201,7 @@ def main():
 
     failed = [c for c, ok in results if not ok]
     print(f"\nRUNBOOK PATH SUMMARY: {len(results) - len(failed)}/{len(results)} passed")
+    print(f"::notice title=Runbook path checks::{len(results) - len(failed)}/{len(results)} passed" + (f"; FAILED: {', '.join(failed)}" if failed else ""))
     with open(os.environ.get("GITHUB_STEP_SUMMARY", os.devnull), "a") as f:
         f.write(f"### D04-C.4A.3 runbook execution path\n{len(results) - len(failed)}/{len(results)} checks passed\n")
         for c, ok in results: f.write(f"- {'PASS' if ok else 'FAIL'} {c}\n")
