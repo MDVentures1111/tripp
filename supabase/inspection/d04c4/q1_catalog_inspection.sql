@@ -2,6 +2,7 @@
 -- v2.2 (D04-C.4A.6): no unconditional reference to optional platform objects. auth.users is resolved
 -- with to_regclass (NULL when absent), privilege checks run only for API roles that exist, and a
 -- 'platform_objects' section reports which Supabase schemas, roles, tables and auth.uid() exist.
+-- Optional relations are located through pg_class/pg_namespace, never to_regclass() (which errors without schema USAGE).
 -- Reads pg_catalog / pg_policies only. Touches NO application table rows.
 -- Run once, as-is, in the Supabase Dashboard SQL Editor of project ufcgsdpqfqeifjzzcuei,
 -- ONLY after explicit authorization. Output: one JSON document (single row, single column).
@@ -72,7 +73,7 @@ trg AS (
          pg_catalog.pg_get_triggerdef(tg.oid) AS definition
   FROM pg_catalog.pg_trigger tg
   WHERE NOT tg.tgisinternal
-    AND (tg.tgrelid IN (SELECT oid FROM target) OR tg.tgrelid = pg_catalog.to_regclass('auth.users'))
+    AND (tg.tgrelid IN (SELECT oid FROM target) OR tg.tgrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'auth' AND c.relname = 'users'))
 ),
 enums AS (
   SELECT ty.typname,
@@ -230,9 +231,9 @@ SELECT jsonb_pretty(jsonb_build_object(
                    FROM (VALUES ('auth'), ('storage'), ('supabase_migrations'), ('extensions')) w(s)),
      'roles',   (SELECT COALESCE(jsonb_agg(jsonb_build_object('role', w.r, 'present', pg_catalog.to_regrole(w.r) IS NOT NULL) ORDER BY w.r), '[]')
                    FROM (VALUES ('anon'), ('authenticated'), ('service_role'), ('authenticator')) w(r)),
-     'relations', (SELECT COALESCE(jsonb_agg(jsonb_build_object('relation', w.r, 'present', pg_catalog.to_regclass(w.r) IS NOT NULL) ORDER BY w.r), '[]')
+     'relations', (SELECT COALESCE(jsonb_agg(jsonb_build_object('relation', w.r, 'present', (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = pg_catalog.split_part(w.r, '.', 1) AND c.relname = pg_catalog.split_part(w.r, '.', 2)) IS NOT NULL) ORDER BY w.r), '[]')
                    FROM (VALUES ('auth.users'), ('storage.buckets'), ('storage.objects'), ('supabase_migrations.schema_migrations')) w(r)),
-     'auth_uid_function_present', pg_catalog.to_regprocedure('auth.uid()') IS NOT NULL,
+     'auth_uid_function_present', EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'auth' AND p.proname = 'uid' AND p.pronargs = 0),
      'api_roles_checked', (SELECT COALESCE(jsonb_agg(role ORDER BY role), '[]') FROM api_roles)),
   'missing_tables',  (SELECT COALESCE(jsonb_agg(relname), '[]') FROM expected WHERE relname NOT IN (SELECT relname FROM target)),
   'tables',          (SELECT COALESCE(jsonb_agg(jsonb_build_object('table', relname, 'kind', relkind, 'owner', pg_catalog.pg_get_userbyid(relowner),

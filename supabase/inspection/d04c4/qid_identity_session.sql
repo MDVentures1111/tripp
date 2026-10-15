@@ -3,6 +3,8 @@
 -- directly. Their presence is read from the catalog first; they are read only when present and
 -- readable, through the built-in query_to_xml() with a constant, schema-qualified query. A missing
 -- object is reported as an explicit status instead of failing the whole statement at parse time.
+-- Optional relations are located through pg_class/pg_namespace (readable by every role), never
+-- to_regclass(), which raises "permission denied for schema" when the role lacks USAGE.
 -- READ-ONLY. Runs before Q0/Q1. Reads only server settings, catalog metadata, the migration ledger
 -- (version column only) and storage bucket ids. No application rows, no function definitions,
 -- no application-defined functions invoked.
@@ -34,8 +36,8 @@ SELECT pg_catalog.jsonb_pretty(pg_catalog.jsonb_build_object(
      CASE WHEN pg_catalog.has_function_privilege('pg_catalog.pg_control_system()', 'EXECUTE')
           THEN (SELECT s.system_identifier::text FROM pg_catalog.pg_control_system() s)
           ELSE 'not-permitted' END,
-  'migration_ledger_present', pg_catalog.to_regclass('supabase_migrations.schema_migrations') IS NOT NULL,
-  'storage_buckets_present', pg_catalog.to_regclass('storage.buckets') IS NOT NULL,
+  'migration_ledger_present', (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'supabase_migrations' AND c.relname = 'schema_migrations') IS NOT NULL,
+  'storage_buckets_present', (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'storage' AND c.relname = 'buckets') IS NOT NULL,
   'platform_schemas_present',
      (SELECT COALESCE(pg_catalog.jsonb_agg(n.nspname::text ORDER BY n.nspname), '[]'::jsonb)
         FROM pg_catalog.pg_namespace n
@@ -65,12 +67,12 @@ SELECT pg_catalog.jsonb_pretty(pg_catalog.jsonb_build_object('ledger_status', st
      END, pg_catalog.jsonb_build_object('migration_count', NULL, 'latest_migration_version', NULL)))
 FROM (SELECT CASE
         WHEN pg_catalog.to_regnamespace('supabase_migrations') IS NULL THEN 'absent_schema'
-        WHEN pg_catalog.to_regclass('supabase_migrations.schema_migrations') IS NULL THEN 'absent_table'
+        WHEN (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'supabase_migrations' AND c.relname = 'schema_migrations') IS NULL THEN 'absent_table'
         WHEN NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
-                          WHERE a.attrelid = pg_catalog.to_regclass('supabase_migrations.schema_migrations')
+                          WHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'supabase_migrations' AND c.relname = 'schema_migrations')
                             AND a.attname = 'version' AND NOT a.attisdropped) THEN 'present_unexpected_columns'
         WHEN NOT pg_catalog.has_schema_privilege(pg_catalog.to_regnamespace('supabase_migrations')::oid, 'USAGE')
-          OR NOT pg_catalog.has_table_privilege(pg_catalog.to_regclass('supabase_migrations.schema_migrations')::oid, 'SELECT')
+          OR NOT pg_catalog.has_table_privilege((SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'supabase_migrations' AND c.relname = 'schema_migrations')::oid, 'SELECT')
           THEN 'present_not_readable'
         ELSE 'present' END AS status) st;
 
@@ -85,12 +87,12 @@ SELECT pg_catalog.jsonb_pretty(pg_catalog.jsonb_build_object(
 ))
 FROM (SELECT CASE
         WHEN pg_catalog.to_regnamespace('storage') IS NULL THEN 'absent_schema'
-        WHEN pg_catalog.to_regclass('storage.buckets') IS NULL THEN 'absent_table'
+        WHEN (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'storage' AND c.relname = 'buckets') IS NULL THEN 'absent_table'
         WHEN NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
-                          WHERE a.attrelid = pg_catalog.to_regclass('storage.buckets')
+                          WHERE a.attrelid = (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'storage' AND c.relname = 'buckets')
                             AND a.attname = 'id' AND NOT a.attisdropped) THEN 'present_unexpected_columns'
         WHEN NOT pg_catalog.has_schema_privilege(pg_catalog.to_regnamespace('storage')::oid, 'USAGE')
-          OR NOT pg_catalog.has_table_privilege(pg_catalog.to_regclass('storage.buckets')::oid, 'SELECT')
+          OR NOT pg_catalog.has_table_privilege((SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'storage' AND c.relname = 'buckets')::oid, 'SELECT')
           THEN 'present_not_readable'
         ELSE 'present' END AS status) st;
 
