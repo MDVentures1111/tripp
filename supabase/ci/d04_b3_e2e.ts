@@ -271,6 +271,70 @@ if(Deno.env.get("TRIPP_INSPECTOR_POSITIVE_E2E")!=="true"){
  console.log("D04-C realistic PDF/DOCX upload, finalize and byte-exact download passed");
 }
 
+// D04-C.3: role and tenant authorization matrix over real HTTP (admin / member / viewer / outsider / anonymous).
+if(Deno.env.get("TRIPP_INSPECTOR_POSITIVE_E2E")!=="true"){
+ const member=await account("member");
+ await seed("organization_memberships",{organization_id:orgA,user_id:member.id,role:"member"});
+ const call=async(name:string,token:string|null,payload:Record<string,unknown>|null,query="",origin?:string)=>{
+  const headers:Record<string,string>={apikey:anon};
+  if(token)headers.authorization="Bearer "+token;
+  if(origin)headers.origin=origin;
+  if(payload)headers["content-type"]="application/json";
+  const r=await fetch(base+"/functions/v1/deal-document-"+name+query,{method:payload?"POST":"GET",headers,...(payload?{body:JSON.stringify(payload)}:{})});
+  return {status:r.status,acao:r.headers.get("access-control-allow-origin"),data:await r.json().catch(()=>({}))};
+ };
+ const q=(org:string,deal:string,doc?:string)=>`?organizationId=${org}&dealId=${deal}${doc?`&documentId=${doc}`:""}`;
+ const results:Record<string,number>={};
+ const expect=(label:string,got:number,want:number)=>{results[label]=got;check(got===want,`${label}: expected ${want}, got ${got}`);};
+ // Member uploads a document end to end.
+ const mBytes=pdf;
+ const mInit=await call("upload-initiate",member.token,{...input,filename:"member.pdf",fileSizeBytes:mBytes.length});
+ expect("member initiate",mInit.status,201);
+ const mPut=await publicClient.storage.from(bucket).uploadToSignedUrl(mInit.data.uploadPath,mInit.data.uploadToken,mBytes,{contentType:"application/pdf"});
+ check(!mPut.error,"Member signed upload failed: "+mPut.error?.message);
+ const mDoc=mInit.data.documentId;
+ const mb={organizationId:orgA,dealId:dealA,documentId:mDoc};
+ // Only the initiator may finalize: admin and viewer of the same org are refused.
+ expect("admin finalize of member's upload",(await call("upload-finalize",owner.token,mb)).status,404);
+ expect("viewer finalize of member's upload",(await call("upload-finalize",viewer.token,mb)).status,404);
+ expect("outsider finalize of member's upload",(await call("upload-finalize",outsider.token,mb)).status,404);
+ expect("pending document download (admin)",(await call("download",owner.token,mb)).status,404);
+ const mFin=await call("upload-finalize",member.token,mb);
+ expect("member finalize",mFin.status,200);
+ check(mFin.data.uploadStatus==="ready","Member document not ready: "+JSON.stringify(mFin.data));
+ // Same-org reads: every role can list and download.
+ for(const [role,u] of [["admin",owner],["member",member],["viewer",viewer]] as const){
+  const l=await call("list",u.token,null,q(orgA,dealA,mDoc));
+  expect(`${role} list`,l.status,200);
+  check(l.data.documents?.length===1&&l.data.documents[0].uploadStatus==="ready",`${role} list content: ${JSON.stringify(l.data)}`);
+  expect(`${role} download`,(await call("download",u.token,mb)).status,200);
+ }
+ // Tenant isolation: outsider (admin of org B) sees nothing of org A, and cannot mix org B with deal A.
+ expect("outsider list org A",(await call("list",outsider.token,null,q(orgA,dealA))).status,404);
+ expect("outsider download org A doc",(await call("download",outsider.token,mb)).status,404);
+ expect("outsider list own org with org A deal",(await call("list",outsider.token,null,q(orgB,dealA))).status,404);
+ expect("outsider download via own org id",(await call("download",outsider.token,{...mb,organizationId:orgB})).status,404);
+ expect("outsider initiate into org A",(await call("upload-initiate",outsider.token,{...input})).status,404);
+ const ownB=await call("list",outsider.token,null,q(orgB,dealB));
+ expect("outsider list own org",ownB.status,200);
+ check(!(ownB.data.documents??[]).some((d:{id:string})=>d.id===mDoc),"Org A document leaked into org B list");
+ expect("admin of A list org B",(await call("list",owner.token,null,q(orgB,dealB))).status,404);
+ // Viewer cannot write.
+ expect("viewer initiate",(await call("upload-initiate",viewer.token,{...input})).status,404);
+ // Unauthenticated and forged tokens.
+ expect("anonymous list",(await call("list",null,null,q(orgA,dealA))).status,401);
+ expect("anonymous download",(await call("download",null,mb)).status,401);
+ expect("anon key as bearer",(await call("download",anon,mb)).status,401);
+ expect("forged JWT",(await call("download",owner.token.slice(0,-4)+"AAAA",mb)).status,401);
+ // CORS: allowed origin echoed, foreign origin gets no allow header.
+ const okOrigin=await call("list",viewer.token,null,q(orgA,dealA),"http://127.0.0.1:54321");
+ check(okOrigin.acao==="http://127.0.0.1:54321","Allowed origin not echoed");
+ const badOrigin=await call("list",viewer.token,null,q(orgA,dealA),"https://evil.example");
+ check(badOrigin.acao===null,"Foreign origin received CORS allow header");
+ console.log("D04-C.3 role/tenant matrix",JSON.stringify(results));
+ console.log("D04-C.3 role and tenant authorization matrix passed");
+}
+
 // Reconciler must reject ordinary user credentials even when called from local CI.
 const reconcile=await fetch(base+"/functions/v1/deal-document-reconcile",{
  method:"POST",headers:{apikey:anon,authorization:"Bearer "+owner.token,"content-type":"application/json"},body:"{}"

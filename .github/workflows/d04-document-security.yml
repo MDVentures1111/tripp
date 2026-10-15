@@ -30,7 +30,7 @@ jobs:
         with:
           deno-version: v2.x
       - name: Run tests
-        run: deno test --node-modules-dir=auto --allow-env --allow-read supabase/functions/tests/fixture_corpus_test.ts supabase/functions/tests/documents_test.ts supabase/functions/tests/file_validation_test.ts supabase/functions/tests/reconciler_transport_test.ts supabase/functions/tests/pdf_active_content_test.ts supabase/functions/tests/malware_scanner_test.ts supabase/functions/tests/content_inspector_test.ts inspector/worker_test.ts
+        run: deno test --node-modules-dir=auto --allow-env --allow-read supabase/functions/tests/fixture_corpus_test.ts supabase/functions/tests/documents_test.ts supabase/functions/tests/file_validation_test.ts supabase/functions/tests/reconciler_transport_test.ts supabase/functions/tests/lifecycle_cors_test.ts supabase/functions/tests/pdf_active_content_test.ts supabase/functions/tests/malware_scanner_test.ts supabase/functions/tests/content_inspector_test.ts inspector/worker_test.ts
 
   local-supabase:
     name: Local Supabase migration smoke check
