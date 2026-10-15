@@ -291,19 +291,22 @@ def main():
     rc, out, err, _ = run_query("q2_membership_integrity_aggregates.sql", "neg_q2_empty", db=neg)
     check("P5.q2-empty-db-fails-clearly", rc != 0 and "does not exist" in err)
     # D04-C.4A.6: optional platform objects absent -> explicit findings, never an uncontrolled error.
-    def ledger_case(label, expect):
-        rc, out, err, _ = run_query("qid_identity_session.sql", f"neg_qid_{label}", db=neg)
-        ok = rc == 0
-        if ok:
+    def ledger_case(label, expect, as_role=None):
+        pre = f"SET ROLE {as_role};\n" if as_role else ""
+        rc, out, err, _ = psql(pre + read("qid_identity_session.sql"), db=neg, ro=True)
+        got = None
+        if rc == 0:
             _, led, bk = json_docs(out)
-            ok = led.get("ledger_status") == expect and led.get("migration_count") is None
-        check(f"P5.qid-ledger-{label}-explicit-status", ok, err.strip()[:200])
-        rc, out, err, _ = run_query("q0_migration_history.sql", f"neg_q0_{label}", db=neg)
-        ok = rc == 0
-        if ok:
+            got = led.get("ledger_status")
+        check(f"P5.qid-ledger-{label}-explicit-status", rc == 0 and got == expect and led.get("migration_count") is None,
+              f"status={got} {err.strip()[:160]}")
+        rc, out, err, _ = psql(pre + read("q0_migration_history.sql"), db=neg, ro=True)
+        got = None
+        if rc == 0:
             head, vers, bucket = json_docs(out)
-            ok = head.get("ledger_status") == expect and vers == [] and head.get("ledger_present") is (expect not in ("absent_schema", "absent_table"))
-        check(f"P5.q0-ledger-{label}-explicit-status", ok, err.strip()[:200])
+            got = head.get("ledger_status")
+        check(f"P5.q0-ledger-{label}-explicit-status", rc == 0 and got == expect and vers == []
+              and head.get("ledger_present") is (expect not in ("absent_schema", "absent_table")), f"status={got} {err.strip()[:160]}")
     ledger_case("absent-schema", "absent_schema")
     rc, out, err, _ = run_query("qid_identity_session.sql", "neg_qid_nostorage", db=neg)
     check("P5.qid-storage-absent-explicit-status", rc == 0 and json_docs(out)[2] == {"buckets_status": "absent_schema", "storage_bucket_ids": None})
@@ -311,15 +314,14 @@ def main():
     ledger_case("absent-table", "absent_table")
     psql("CREATE TABLE supabase_migrations.schema_migrations (id int);", db=neg)
     ledger_case("unexpected-columns", "present_unexpected_columns")
-    psql("DROP SCHEMA supabase_migrations CASCADE; CREATE SCHEMA supabase_migrations AUTHORIZATION supabase_admin; "
+    # Not readable: a role without USAGE on the ledger schema (postgres itself may hold pg_read_all_data).
+    psql("DROP SCHEMA supabase_migrations CASCADE; CREATE SCHEMA supabase_migrations; "
          "CREATE TABLE supabase_migrations.schema_migrations (version text PRIMARY KEY, name text); "
-         "REVOKE ALL ON SCHEMA supabase_migrations FROM PUBLIC;", db=neg, user="supabase_admin")
-    _, su, _, _ = psql("SELECT rolsuper FROM pg_roles WHERE rolname = 'postgres';", db=neg)
-    if su.strip() == "f":
-        ledger_case("not-readable", "present_not_readable")
-    else:
-        print("::notice title=P5 not-readable::postgres is superuser in this image; present_not_readable case not reachable")
-    psql("DROP SCHEMA supabase_migrations CASCADE;", db=neg, user="supabase_admin")
+         "REVOKE ALL ON SCHEMA supabase_migrations FROM PUBLIC; "
+         "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ci_noread') THEN CREATE ROLE ci_noread NOLOGIN; END IF; END $$; "
+         "GRANT ci_noread TO postgres;", db=neg)
+    ledger_case("not-readable", "present_not_readable", as_role="ci_noread")
+    psql("DROP SCHEMA supabase_migrations CASCADE;", db=neg)
     rc, out, err, _ = run_query("q1_catalog_inspection.sql", "neg_q1_noauth", db=neg)
     ok = rc == 0
     if ok:

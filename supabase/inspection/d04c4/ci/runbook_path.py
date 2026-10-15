@@ -117,8 +117,16 @@ def main():
     fail_case("wrong-password-exit-2", "qid", DIRECT.format(db="postgres", ssl="disable"), 2, password="definitely-wrong")
     fail_case("tls-verify-full-unavailable-exit-2", "qid", DIRECT.format(db="postgres", ssl="verify-full sslrootcert=/nonexistent.crt"), 2)
     dexec("DROP DATABASE IF EXISTS ci_rb_scratch;"); dexec("CREATE DATABASE ci_rb_scratch;")
+    # D04-C.4A.6: absent platform objects (no ledger, no storage, no auth) are explicit findings, not errors.
     for s in ("qid", "q0", "q1"):
-        fail_case(f"missing-objects-{s}-exit-3", s, DIRECT.format(db="ci_rb_scratch", ssl="disable"), 3)
+        o = os.path.join(WORK, f"absent-{s}", "out"); os.makedirs(o, exist_ok=True)
+        rc, tr = step(s, DIRECT.format(db="ci_rb_scratch", ssl="disable"), o, LOCAL_PW, PKG, None)
+        rcv, vout = validate(o, s)
+        expect_finding = {"qid": "FINDING migration ledger status = absent_schema",
+                          "q0": "FINDING migration ledger status = absent_schema",
+                          "q1": "FINDING platform objects absent"}[s]
+        check(f"R4.absent-platform-objects-{s}-explicit-finding", rc == 0 and rcv == 0 and expect_finding in vout,
+              f"run_step rc={rc}, validator rc={rcv}")
     # Real lock contention on the pinned files: hold ACCESS EXCLUSIVE on the ledger, expect lock_timeout.
     holder = subprocess.Popen(["docker", "exec", "-i", CONTAINER, "psql", "-U", "postgres", "-d", "postgres", "-X", "-q", "-f", "-"],
                               stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
