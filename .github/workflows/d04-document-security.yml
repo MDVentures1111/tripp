@@ -56,6 +56,33 @@ jobs:
       - name: Run database authorization and lifecycle integration tests
         run: |
           docker exec -i supabase_db_tripp psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/ci/document_integration.sql
+      - name: Run D04-C.4C READY-invariant, tenant, privilege and Storage tests
+        run: |
+          docker exec -i supabase_db_tripp psql -U postgres -d postgres -v ON_ERROR_STOP=1 < supabase/ci/d04c_ready_invariants.sql
+      - name: Shut down isolated stack
+        if: always()
+        run: supabase stop --no-backup
+
+  staging-rehearsal:
+    name: D04-C.4C isolated staging procedure rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v3.0.1
+        with:
+          version: 2.120.0
+      - name: Ensure psql client
+        run: command -v psql || (sudo apt-get update -q && sudo apt-get install -y -q postgresql-client)
+      - name: Start an EMPTY local Supabase stack (no migrations, like a new staging project)
+        run: |
+          mv supabase/migrations /tmp/tripp-migrations
+          mkdir supabase/migrations
+          supabase start --exclude studio,imgproxy,logflare,vector,supavisor,edge-runtime
+          rmdir supabase/migrations
+          mv /tmp/tripp-migrations supabase/migrations
+      - name: Rehearse baseline, truthful repair, push, tests, preflight failures, rollback and re-apply
+        run: bash supabase/ci/d04c_staging_rehearsal.sh
       - name: Shut down isolated stack
         if: always()
         run: supabase stop --no-backup

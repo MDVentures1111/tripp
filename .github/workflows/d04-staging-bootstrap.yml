@@ -1,0 +1,49 @@
+name: D04 Staging Bootstrap (manual, staging only)
+# Runs supabase/staging/bootstrap.sh against the ISOLATED staging project using the
+# `staging` environment's secrets. Never configure production credentials here; the script
+# refuses the production ref regardless. One step per run, in order: baseline, repair, push.
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: "baseline | repair | push"
+        required: true
+        type: choice
+        options: [baseline, repair, push]
+      confirm_ref:
+        description: "Type the staging project ref to confirm"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d04-staging-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v3.0.1
+        with:
+          version: 2.120.0
+      - name: Ensure psql client
+        run: command -v psql || (sudo apt-get update -q && sudo apt-get install -y -q postgresql-client)
+      - name: Confirm target
+        env:
+          STAGING_PROJECT_REF: ${{ secrets.STAGING_PROJECT_REF }}
+          CONFIRM: ${{ inputs.confirm_ref }}
+        run: |
+          [ -n "$STAGING_PROJECT_REF" ] || { echo "staging secrets missing"; exit 2; }
+          [ "$CONFIRM" = "$STAGING_PROJECT_REF" ] || { echo "confirmation does not match the staging ref"; exit 2; }
+          [ "$STAGING_PROJECT_REF" != "ufcgsdpqfqeifjzzcuei" ] || { echo "production ref refused"; exit 2; }
+      - name: Run ${{ inputs.step }}
+        env:
+          STAGING_DB_URL: ${{ secrets.STAGING_DB_URL }}
+          STAGING_PROJECT_REF: ${{ secrets.STAGING_PROJECT_REF }}
+        run: bash supabase/staging/bootstrap.sh "${{ inputs.step }}"

@@ -170,11 +170,15 @@ BEGIN
  THEN RAISE EXCEPTION 'Browser role can run scheduler functions'; END IF;
 END $sched$;
 -- D04-C: timeouts are enforced without any HTTP call, and active leases are never overtaken.
-INSERT INTO public.deal_documents(id,organization_id,deal_id,document_type,original_filename,storage_path,mime_type,file_size_bytes,uploaded_by,upload_status,finalize_token,finalize_lease_until,created_at) VALUES
- ('40000000-0000-4000-8000-0000000000c1','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','stuck.pdf','ci/c1/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001','processing',gen_random_uuid(),now()-interval '1 hour',now()-interval '25 hours'),
- ('40000000-0000-4000-8000-0000000000c2','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','active.pdf','ci/c2/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001','processing',gen_random_uuid(),now()+interval '5 minutes',now()-interval '25 hours'),
- ('40000000-0000-4000-8000-0000000000c3','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','abandoned.pdf','ci/c3/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001','pending',NULL,NULL,now()-interval '4 hours'),
- ('40000000-0000-4000-8000-0000000000c4','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','recent.pdf','ci/c4/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001','processing',gen_random_uuid(),now()-interval '1 hour',now()-interval '2 hours');
+-- Rows start pending (insert guard, 20261023); processing fixtures are reached through a leased transition.
+INSERT INTO public.deal_documents(id,organization_id,deal_id,document_type,original_filename,storage_path,mime_type,file_size_bytes,uploaded_by,created_at) VALUES
+ ('40000000-0000-4000-8000-0000000000c1','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','stuck.pdf','ci/c1/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001',now()-interval '25 hours'),
+ ('40000000-0000-4000-8000-0000000000c2','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','active.pdf','ci/c2/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001',now()-interval '25 hours'),
+ ('40000000-0000-4000-8000-0000000000c3','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','abandoned.pdf','ci/c3/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001',now()-interval '4 hours'),
+ ('40000000-0000-4000-8000-0000000000c4','20000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000001','other','recent.pdf','ci/c4/source.pdf','application/pdf',128,'10000000-0000-4000-8000-000000000001',now()-interval '2 hours');
+UPDATE public.deal_documents SET upload_status='processing',finalize_token=gen_random_uuid(),
+ finalize_lease_until=CASE WHEN id='40000000-0000-4000-8000-0000000000c2' THEN now()+interval '5 minutes' ELSE now()-interval '1 hour' END
+ WHERE id IN ('40000000-0000-4000-8000-0000000000c1','40000000-0000-4000-8000-0000000000c2','40000000-0000-4000-8000-0000000000c4');
 DO $expiry$
 BEGIN
  PERFORM public.tripp_expire_stale_documents(500);

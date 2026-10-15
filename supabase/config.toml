@@ -2,6 +2,10 @@
 # against the STAGING project only. Never link this repository to the production ref.
 project_id = "tripp"
 
+# Match production (PostgreSQL 17.x, verified by D04-C.4 inspection).
+[db]
+major_version = 17
+
 # Browser-facing endpoints: the Supabase gateway requires a valid user JWT, and each
 # function re-verifies the user and organization membership server-side.
 [functions.deal-document-upload-initiate]
