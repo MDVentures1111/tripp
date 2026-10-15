@@ -20,6 +20,7 @@ Q1_KEYS = ["capture", "missing_tables", "tables", "columns", "enum_types", "cons
            "indexes", "policies", "table_grants", "column_grants", "triggers", "functions",
            "effective_table_privileges", "schema_privileges", "role_attributes", "default_privileges",
            "storage_policies", "dependent_views", "sensitive_literal_flags"]
+STATUSES = {"present", "absent_schema", "absent_table", "present_unexpected_columns", "present_not_readable"}
 fails = []
 
 
@@ -68,15 +69,22 @@ def check_qid():
     if not need(len(d) == 3, f"qid: 3 JSON documents (got {len(d)})"):
         return
     head, ledger, buckets = d
-    need(head.get("tool") == "tripp-d04c4-qid" and head.get("version") == "1", "qid: tool tripp-d04c4-qid version 1")
+    need(head.get("tool") == "tripp-d04c4-qid" and head.get("version") == "2", "qid: tool tripp-d04c4-qid version 2")
     session_checks("qid", head)
     need(head.get("session_default_transaction_read_only") == "on",
          "qid: session default_transaction_read_only = on (psql -c SET persisted into the file)")
     need(head.get("session_search_path") == EXPECTED_SEARCH_PATH,
          f"qid: session search_path = '{EXPECTED_SEARCH_PATH}' (psql -c SET persisted into the file)")
-    need(head.get("migration_ledger_present") is True, "qid: migration ledger present")
-    need(isinstance(ledger.get("migration_count"), int), "qid: ledger fingerprint present")
-    need(isinstance(buckets.get("storage_bucket_ids"), list), "qid: bucket fingerprint present")
+    ls, bs = ledger.get("ledger_status"), buckets.get("buckets_status")
+    need(ls in STATUSES, f"qid: ledger status is an explicit finding ({ls})")
+    need((ls == "present") == isinstance(ledger.get("migration_count"), int),
+         "qid: ledger fingerprint present exactly when the ledger is present")
+    need(bs in STATUSES, f"qid: buckets status is an explicit finding ({bs})")
+    need((bs == "present") == isinstance(buckets.get("storage_bucket_ids"), list),
+         "qid: bucket fingerprint present exactly when storage.buckets is present")
+    need(head.get("migration_ledger_present") is (ls not in ("absent_schema", "absent_table")), "qid: ledger presence flags agree")
+    if ls != "present":
+        print(f"INFO  qid: FINDING migration ledger status = {ls}; the Dashboard Migrations page should show no CLI migration history")
     print("INFO  identity fingerprint is in tripp_qid.json - compare it with the Dashboard by eye (runbook step B2); do not share it")
 
 
@@ -87,9 +95,15 @@ def check_q0():
     if not need(len(d) == 3, f"q0: 3 JSON documents (got {len(d)})"):
         return
     head, versions, bucket = d
-    need(head.get("tool") == "tripp-d04c4-q0" and head.get("version") == "2", "q0: tool tripp-d04c4-q0 version 2")
+    need(head.get("tool") == "tripp-d04c4-q0" and head.get("version") == "3", "q0: tool tripp-d04c4-q0 version 3")
     session_checks("q0", head)
-    need(head.get("ledger_present") is True, "q0: migration ledger present")
+    ls, bs = head.get("ledger_status"), head.get("buckets_status")
+    need(ls in STATUSES and bs in STATUSES, f"q0: ledger/buckets status are explicit findings ({ls}/{bs})")
+    need(ls == "present" or versions == [], "q0: no ledger rows unless the ledger is present")
+    need(bs == "present" or bucket == [], "q0: no bucket rows unless storage.buckets is present")
+    need(isinstance(head.get("ledger_candidates"), list), "q0: ledger candidate list present")
+    if ls != "present":
+        print(f"INFO  q0: FINDING migration ledger status = {ls}; other ledger-like tables found = {len(head.get('ledger_candidates') or [])}")
     need(isinstance(versions, list) and all(set(v) == {"version", "name"} for v in versions),
          f"q0: ledger rows carry only version+name ({len(versions) if isinstance(versions, list) else '?'} rows)")
     need(isinstance(bucket, list), "q0: bucket section is a list")
@@ -105,14 +119,22 @@ def check_q1():
         return
     q1 = d[0]
     missing = [k for k in Q1_KEYS if k not in q1]
-    need(not missing, f"q1: all 20 sections present (missing: {missing or 'none'})")
+    need(not missing, f"q1: all 20 list sections present (missing: {missing or 'none'})")
     cap = q1.get("capture", {})
-    need(cap.get("tool") == "tripp-d04c4-q1" and cap.get("version") == "2.1", "q1: tool tripp-d04c4-q1 version 2.1")
+    need(cap.get("tool") == "tripp-d04c4-q1" and cap.get("version") == "2.2", "q1: tool tripp-d04c4-q1 version 2.2")
+    po = q1.get("platform_objects")
+    need(isinstance(po, dict) and all(isinstance(po.get(k), list) for k in ("schemas", "roles", "relations", "api_roles_checked")),
+         "q1: platform_objects section present")
+    roles_checked = (po or {}).get("api_roles_checked") or []
+    absent = [x.get("role") for x in (po or {}).get("roles", []) if not x.get("present")] + \
+             [x.get("relation") for x in (po or {}).get("relations", []) if not x.get("present")]
+    if absent:
+        print(f"INFO  q1: FINDING platform objects absent = {absent}")
     session_checks("q1", cap)
     need(all(isinstance(q1.get(k), list) for k in Q1_KEYS[1:]), "q1: every section is a list (no null sections)")
     tables = q1.get("tables") or []
-    need(len(q1.get("effective_table_privileges") or []) == len(tables) * 4 * 7,
-         f"q1: effective privilege matrix complete ({len(tables) * 28} rows expected)")
+    need(len(q1.get("effective_table_privileges") or []) == len(tables) * len(roles_checked) * 7,
+         f"q1: effective privilege matrix complete ({len(tables) * len(roles_checked) * 7} rows expected)")
     print(f"INFO  q1: target tables present = {len(tables)}, missing = {len(q1.get('missing_tables') or [])}")
     for k in Q1_KEYS[1:]:
         print(f"INFO  q1: {k} = {len(q1.get(k) or [])}")

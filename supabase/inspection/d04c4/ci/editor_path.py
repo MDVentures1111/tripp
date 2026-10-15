@@ -43,6 +43,15 @@ def dpsql(args, sql=None):
     return subprocess.run(cmd, input=sql, capture_output=True, text=True, timeout=120)
 
 
+def dpsql_as(user, sql):
+    cmd = ["docker", "exec", "-i", CONTAINER, "psql", "-U", user, "-d", "postgres", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", "-"]
+    return subprocess.run(cmd, input=sql, capture_output=True, text=True, timeout=60)
+
+
+def status_ok_pgmeta():
+    return pgmeta("select 1 as ok")[0] == 200
+
+
 def http_query(url, sql, headers):
     req = urllib.request.Request(url, data=json.dumps({"query": sql}).encode(), method="POST",
                                  headers={"Content-Type": "application/json", **headers})
@@ -211,6 +220,41 @@ def main():
         rc, txt = importer(files, os.path.join(d, "out"), {"TRIPP_CI_EXPECTED_USER": user} if user != "postgres" else None)
         check("E3b.controls-in-effect-via-studio-route", rc == 0, "; ".join(l for l in txt.splitlines() if l.startswith("STOP")))
         print(f"::notice title=E3b Studio route::REPRODUCED (executes as {user})")
+
+    # ---- E7: ledger-absent production shape (full local stack, ledger schema hidden for this phase only) ----
+    hide = dpsql_as("supabase_admin", "ALTER SCHEMA supabase_migrations RENAME TO ci_hidden_supabase_migrations;")
+    if check("E7.ledger-hidden-for-fixture", hide.returncode == 0, hide.stderr.strip()[:200]):
+        try:
+            d7 = os.path.join(WORK, "noledger"); os.makedirs(d7)
+            files = []
+            for s in STEPS:
+                r = dpsql(["--csv", "-c", editor_sql(s)])
+                f = os.path.join(d7, f"{s}.csv"); open(f, "w").write(r.stdout); files.append(f)
+                check(f"E7.{s}-runs-without-ledger", r.returncode == 0 and not r.stderr.strip(), r.stderr.strip()[:200])
+            out7 = os.path.join(d7, "base", "out")
+            rc, txt = importer(files, out7)
+            check("E7.importer-accepts-ledger-absent-output", rc == 0, "; ".join(l for l in txt.splitlines() if l.startswith("STOP")))
+            rc, txt = validate(out7)
+            check("E7.validator-complete-with-explicit-finding", rc == 0 and "FINDING migration ledger status = absent_schema" in txt,
+                  "; ".join(l for l in txt.splitlines() if l.startswith("STOP")))
+            if status_ok_pgmeta():
+                st, body = pgmeta(editor_sql("qid"))
+                rows = rows_from_http(body) if st == 200 else []
+                payload = json.loads("".join(r["chunk"] for r in sorted(rows, key=lambda r: int(r["part"])))) if rows else {}
+                led = (payload.get("documents") or [{}, {}])[1]
+                check("E7.pgmeta-qid-reports-absent-ledger", led.get("ledger_status") == "absent_schema"
+                      and payload["editor_envelope"]["transaction_read_only"] == "on", f"HTTP {st}")
+            base7 = os.path.dirname(out7)
+            p = subprocess.run([sys.executable, os.path.join(OP, "make_share.py"), base7], capture_output=True, text=True)
+            ok = p.returncode == 0
+            if ok:
+                sh = json.load(open(os.path.join(base7, "share", "tripp_d04c4_share.json")))
+                ok = (sh["q0"]["header"]["ledger_status"] == "absent_schema" and sh["q0"]["ledger"] == []
+                      and sh["q0"]["repository_versions_missing_from_ledger"] is None and "platform_objects" in sh["q1"])
+            check("E7.share-reports-ledger-absent-accurately", ok, (p.stdout.strip().splitlines() or [""])[-1][:200])
+        finally:
+            back = dpsql_as("supabase_admin", "ALTER SCHEMA ci_hidden_supabase_migrations RENAME TO supabase_migrations;")
+            check("E7.ledger-restored-after-fixture", back.returncode == 0, back.stderr.strip()[:200])
 
     # ---- E4: fail closed if the editor does not keep SET LOCAL (statements run separately) ----
     stmts = [x for x in B.split_statements(editor_sql("q0")) if B.strip_leading_comments(x)]

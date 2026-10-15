@@ -1,4 +1,7 @@
--- TRIPP D04-C.4  Q1 v2.1  Production catalog inspection (READ ONLY, catalog metadata only)
+-- TRIPP D04-C.4  Q1 v2.2  Production catalog inspection (READ ONLY, catalog metadata only)
+-- v2.2 (D04-C.4A.6): no unconditional reference to optional platform objects. auth.users is resolved
+-- with to_regclass (NULL when absent), privilege checks run only for API roles that exist, and a
+-- 'platform_objects' section reports which Supabase schemas, roles, tables and auth.uid() exist.
 -- Reads pg_catalog / pg_policies only. Touches NO application table rows.
 -- Run once, as-is, in the Supabase Dashboard SQL Editor of project ufcgsdpqfqeifjzzcuei,
 -- ONLY after explicit authorization. Output: one JSON document (single row, single column).
@@ -69,7 +72,7 @@ trg AS (
          pg_catalog.pg_get_triggerdef(tg.oid) AS definition
   FROM pg_catalog.pg_trigger tg
   WHERE NOT tg.tgisinternal
-    AND (tg.tgrelid IN (SELECT oid FROM target) OR tg.tgrelid = 'auth.users'::regclass)
+    AND (tg.tgrelid IN (SELECT oid FROM target) OR tg.tgrelid = pg_catalog.to_regclass('auth.users'))
 ),
 enums AS (
   SELECT ty.typname,
@@ -135,8 +138,10 @@ fmeta AS (
             FROM pg_catalog.aclexplode(COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
            WHERE a.privilege_type = 'EXECUTE') AS execute_grantees,
          jsonb_build_object(
-           'anon',          pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE'),
-           'authenticated', pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE'),
+           'anon',          CASE WHEN pg_catalog.to_regrole('anon') IS NOT NULL
+                                 THEN pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE') END,
+           'authenticated', CASE WHEN pg_catalog.to_regrole('authenticated') IS NOT NULL
+                                 THEN pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE') END,
            'public',        pg_catalog.has_function_privilege('public', p.oid, 'EXECUTE')) AS effective_execute,
          pg_catalog.md5(p.prosrc) AS body_md5,
          pg_catalog.pg_get_functiondef(p.oid) AS definition
@@ -144,7 +149,11 @@ fmeta AS (
   JOIN pg_catalog.pg_proc p ON p.oid = f.oid
   JOIN pg_catalog.pg_language l ON l.oid = p.prolang
 ),
-api_roles(role) AS (VALUES ('anon'), ('authenticated'), ('service_role'), ('public')),
+api_roles_wanted(role) AS (VALUES ('anon'), ('authenticated'), ('service_role'), ('public')),
+api_roles AS (
+  -- Only roles that exist ('public' is the PUBLIC pseudo-role); absent roles are reported in platform_objects.
+  SELECT role FROM api_roles_wanted WHERE role = 'public' OR pg_catalog.to_regrole(role) IS NOT NULL
+),
 privs(priv) AS (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')),
 effective_table_privs AS (
   -- Effective privileges (direct grants + PUBLIC + inherited role membership), via has_*_privilege.
@@ -212,10 +221,19 @@ literal_flags AS (
 )
 SELECT jsonb_pretty(jsonb_build_object(
   'capture', jsonb_build_object(
-     'tool', 'tripp-d04c4-q1', 'version', '2.1', 'captured_at', now(),
+     'tool', 'tripp-d04c4-q1', 'version', '2.2', 'captured_at', now(),
      'server_version', current_setting('server_version'),
      'executed_as', current_user,
      'transaction_read_only', current_setting('transaction_read_only')),
+  'platform_objects', jsonb_build_object(
+     'schemas', (SELECT COALESCE(jsonb_agg(jsonb_build_object('schema', w.s, 'present', pg_catalog.to_regnamespace(w.s) IS NOT NULL) ORDER BY w.s), '[]')
+                   FROM (VALUES ('auth'), ('storage'), ('supabase_migrations'), ('extensions')) w(s)),
+     'roles',   (SELECT COALESCE(jsonb_agg(jsonb_build_object('role', w.r, 'present', pg_catalog.to_regrole(w.r) IS NOT NULL) ORDER BY w.r), '[]')
+                   FROM (VALUES ('anon'), ('authenticated'), ('service_role'), ('authenticator')) w(r)),
+     'relations', (SELECT COALESCE(jsonb_agg(jsonb_build_object('relation', w.r, 'present', pg_catalog.to_regclass(w.r) IS NOT NULL) ORDER BY w.r), '[]')
+                   FROM (VALUES ('auth.users'), ('storage.buckets'), ('storage.objects'), ('supabase_migrations.schema_migrations')) w(r)),
+     'auth_uid_function_present', pg_catalog.to_regprocedure('auth.uid()') IS NOT NULL,
+     'api_roles_checked', (SELECT COALESCE(jsonb_agg(role ORDER BY role), '[]') FROM api_roles)),
   'missing_tables',  (SELECT COALESCE(jsonb_agg(relname), '[]') FROM expected WHERE relname NOT IN (SELECT relname FROM target)),
   'tables',          (SELECT COALESCE(jsonb_agg(jsonb_build_object('table', relname, 'kind', relkind, 'owner', pg_catalog.pg_get_userbyid(relowner),
                                                            'rls_enabled', relrowsecurity, 'rls_forced', relforcerowsecurity) ORDER BY relname), '[]') FROM target),

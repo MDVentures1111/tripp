@@ -179,17 +179,25 @@ def docs(path):
 q0 = docs(os.path.join(OUT, "tripp_q0.json"))
 q1 = docs(os.path.join(OUT, "tripp_q1.json"))[0]
 
-share = {"tool": "tripp-d04c4-share", "version": "1",
+share = {"tool": "tripp-d04c4-share", "version": "2",
          "note": "Deny-by-default share of Q0/Q1. Function bodies withheld; non-repository string literals replaced by placeholders."}
 head, versions, bucket = q0
-share["q0"] = {"header": {k: head.get(k) for k in ("tool", "version", "transaction_read_only", "ledger_present")},
+LEDGER_SAFE_NAMES = {"schema_migrations", "_prisma_migrations", "knex_migrations", "flyway_schema_history",
+                     "__drizzle_migrations", "migrations", "goose_db_version", "schema_version"}
+ledger_ok = head.get("ledger_status") == "present"
+share["q0"] = {"header": {k: head.get(k) for k in ("tool", "version", "transaction_read_only", "ledger_present",
+                                                    "ledger_status", "buckets_status")},
+               "ledger_candidates": [{"schema": c["schema"] if c.get("schema") in ("public", "supabase_migrations") else placeholder(c.get("schema"), "SCHEMA"),
+                                      "table": c["table"] if c.get("table") in LEDGER_SAFE_NAMES else placeholder(c.get("table"), "NAME")}
+                                     for c in head.get("ledger_candidates") or []],
                "ledger": [{"version": v["version"],
                            "name": v["name"] if REPO_MIGS.get(v["version"]) == v["name"] else placeholder(v["name"], "MIGRATION-NAME"),
                            "in_repository": v["version"] in REPO_MIGS} for v in versions],
-               "repository_versions_missing_from_ledger": sorted(set(REPO_MIGS) - {v["version"] for v in versions}),
+               "repository_versions_missing_from_ledger": sorted(set(REPO_MIGS) - {v["version"] for v in versions}) if ledger_ok else None,
                "tripp_bucket": bucket}
 
 s = {"capture": {k: q1["capture"].get(k) for k in ("tool", "version", "captured_at", "server_version", "executed_as", "transaction_read_only")}}
+s["platform_objects"] = q1["platform_objects"]
 for key in ("missing_tables", "tables", "table_grants", "column_grants", "effective_table_privileges", "schema_privileges",
             "role_attributes", "default_privileges", "dependent_views", "sensitive_literal_flags"):
     s[key] = q1[key]

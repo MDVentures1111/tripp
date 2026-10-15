@@ -1,4 +1,4 @@
--- TRIPP D04-C.4A.5 SQL EDITOR STEP: Q1   (generated from q1_catalog_inspection.sql, sha256 efc12b22b4c376798a8bc12ca1104bff975407d328f4826b9bfb0f11acbe37c2)
+-- TRIPP D04-C.4A.5 SQL EDITOR STEP: Q1   (generated from q1_catalog_inspection.sql, sha256 da5fc0dbd4483ac381d3b98843a96cc06a62ea031873d7e514d5f7e197caba87)
 -- Paste this WHOLE file into a NEW Supabase SQL Editor tab and press Run ONCE. Do not edit it.
 -- Read-only: nothing here can change data or schema. It returns rows named step/part/parts/sha256/chunk.
 -- If the result panel shows any error, STOP and report the error text. Do not re-run.
@@ -24,7 +24,7 @@ tripp_payload AS (
   SELECT pg_catalog.jsonb_build_object(
   'editor_envelope', pg_catalog.jsonb_build_object(
      'mode', 'sql-editor', 'editor_version', '1', 'step', 'q1',
-     'source_file', 'q1_catalog_inspection.sql', 'source_sha256', 'efc12b22b4c376798a8bc12ca1104bff975407d328f4826b9bfb0f11acbe37c2',
+     'source_file', 'q1_catalog_inspection.sql', 'source_sha256', 'da5fc0dbd4483ac381d3b98843a96cc06a62ea031873d7e514d5f7e197caba87',
      'transaction_read_only', pg_catalog.current_setting('transaction_read_only'),
      'default_transaction_read_only', pg_catalog.current_setting('default_transaction_read_only'),
      'search_path', pg_catalog.current_setting('search_path'),
@@ -93,7 +93,7 @@ trg AS (
          pg_catalog.pg_get_triggerdef(tg.oid) AS definition
   FROM pg_catalog.pg_trigger tg
   WHERE NOT tg.tgisinternal
-    AND (tg.tgrelid IN (SELECT oid FROM target) OR tg.tgrelid = 'auth.users'::regclass)
+    AND (tg.tgrelid IN (SELECT oid FROM target) OR tg.tgrelid = pg_catalog.to_regclass('auth.users'))
 ),
 enums AS (
   SELECT ty.typname,
@@ -159,8 +159,10 @@ fmeta AS (
             FROM pg_catalog.aclexplode(COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))) a
            WHERE a.privilege_type = 'EXECUTE') AS execute_grantees,
          jsonb_build_object(
-           'anon',          pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE'),
-           'authenticated', pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE'),
+           'anon',          CASE WHEN pg_catalog.to_regrole('anon') IS NOT NULL
+                                 THEN pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE') END,
+           'authenticated', CASE WHEN pg_catalog.to_regrole('authenticated') IS NOT NULL
+                                 THEN pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE') END,
            'public',        pg_catalog.has_function_privilege('public', p.oid, 'EXECUTE')) AS effective_execute,
          pg_catalog.md5(p.prosrc) AS body_md5,
          pg_catalog.pg_get_functiondef(p.oid) AS definition
@@ -168,7 +170,11 @@ fmeta AS (
   JOIN pg_catalog.pg_proc p ON p.oid = f.oid
   JOIN pg_catalog.pg_language l ON l.oid = p.prolang
 ),
-api_roles(role) AS (VALUES ('anon'), ('authenticated'), ('service_role'), ('public')),
+api_roles_wanted(role) AS (VALUES ('anon'), ('authenticated'), ('service_role'), ('public')),
+api_roles AS (
+  -- Only roles that exist ('public' is the PUBLIC pseudo-role); absent roles are reported in platform_objects.
+  SELECT role FROM api_roles_wanted WHERE role = 'public' OR pg_catalog.to_regrole(role) IS NOT NULL
+),
 privs(priv) AS (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')),
 effective_table_privs AS (
   -- Effective privileges (direct grants + PUBLIC + inherited role membership), via has_*_privilege.
@@ -236,10 +242,19 @@ literal_flags AS (
 )
 SELECT jsonb_pretty(jsonb_build_object(
   'capture', jsonb_build_object(
-     'tool', 'tripp-d04c4-q1', 'version', '2.1', 'captured_at', now(),
+     'tool', 'tripp-d04c4-q1', 'version', '2.2', 'captured_at', now(),
      'server_version', current_setting('server_version'),
      'executed_as', current_user,
      'transaction_read_only', current_setting('transaction_read_only')),
+  'platform_objects', jsonb_build_object(
+     'schemas', (SELECT COALESCE(jsonb_agg(jsonb_build_object('schema', w.s, 'present', pg_catalog.to_regnamespace(w.s) IS NOT NULL) ORDER BY w.s), '[]')
+                   FROM (VALUES ('auth'), ('storage'), ('supabase_migrations'), ('extensions')) w(s)),
+     'roles',   (SELECT COALESCE(jsonb_agg(jsonb_build_object('role', w.r, 'present', pg_catalog.to_regrole(w.r) IS NOT NULL) ORDER BY w.r), '[]')
+                   FROM (VALUES ('anon'), ('authenticated'), ('service_role'), ('authenticator')) w(r)),
+     'relations', (SELECT COALESCE(jsonb_agg(jsonb_build_object('relation', w.r, 'present', pg_catalog.to_regclass(w.r) IS NOT NULL) ORDER BY w.r), '[]')
+                   FROM (VALUES ('auth.users'), ('storage.buckets'), ('storage.objects'), ('supabase_migrations.schema_migrations')) w(r)),
+     'auth_uid_function_present', pg_catalog.to_regprocedure('auth.uid()') IS NOT NULL,
+     'api_roles_checked', (SELECT COALESCE(jsonb_agg(role ORDER BY role), '[]') FROM api_roles)),
   'missing_tables',  (SELECT COALESCE(jsonb_agg(relname), '[]') FROM expected WHERE relname NOT IN (SELECT relname FROM target)),
   'tables',          (SELECT COALESCE(jsonb_agg(jsonb_build_object('table', relname, 'kind', relkind, 'owner', pg_catalog.pg_get_userbyid(relowner),
                                                            'rls_enabled', relrowsecurity, 'rls_forced', relforcerowsecurity) ORDER BY relname), '[]') FROM target),

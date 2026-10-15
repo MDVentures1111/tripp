@@ -1,4 +1,4 @@
--- TRIPP D04-C.4A.5 SQL EDITOR STEP: QID   (generated from qid_identity_session.sql, sha256 ff97892e3eb560f15048dc2966c682389db46c4c21ecb343d8f4a86bee8de8fb)
+-- TRIPP D04-C.4A.5 SQL EDITOR STEP: QID   (generated from qid_identity_session.sql, sha256 d3258869a2b79fc698b726716715be98640aa2a1dc203dc4de24c22926bdce95)
 -- Paste this WHOLE file into a NEW Supabase SQL Editor tab and press Run ONCE. Do not edit it.
 -- Read-only: nothing here can change data or schema. It returns rows named step/part/parts/sha256/chunk.
 -- If the result panel shows any error, STOP and report the error text. Do not re-run.
@@ -24,7 +24,7 @@ tripp_payload AS (
   SELECT pg_catalog.jsonb_build_object(
   'editor_envelope', pg_catalog.jsonb_build_object(
      'mode', 'sql-editor', 'editor_version', '1', 'step', 'qid',
-     'source_file', 'qid_identity_session.sql', 'source_sha256', 'ff97892e3eb560f15048dc2966c682389db46c4c21ecb343d8f4a86bee8de8fb',
+     'source_file', 'qid_identity_session.sql', 'source_sha256', 'd3258869a2b79fc698b726716715be98640aa2a1dc203dc4de24c22926bdce95',
      'transaction_read_only', pg_catalog.current_setting('transaction_read_only'),
      'default_transaction_read_only', pg_catalog.current_setting('default_transaction_read_only'),
      'search_path', pg_catalog.current_setting('search_path'),
@@ -36,7 +36,7 @@ tripp_payload AS (
   (SELECT s1.x::jsonb FROM (
 SELECT pg_catalog.jsonb_pretty(pg_catalog.jsonb_build_object(
   'tool', 'tripp-d04c4-qid',
-  'version', '1',
+  'version', '2',
   'captured_at', pg_catalog.now(),
   'session_default_transaction_read_only', pg_catalog.current_setting('default_transaction_read_only'),
   'transaction_read_only', pg_catalog.current_setting('transaction_read_only'),
@@ -51,6 +51,13 @@ SELECT pg_catalog.jsonb_pretty(pg_catalog.jsonb_build_object(
           ELSE 'not-permitted' END,
   'migration_ledger_present', pg_catalog.to_regclass('supabase_migrations.schema_migrations') IS NOT NULL,
   'storage_buckets_present', pg_catalog.to_regclass('storage.buckets') IS NOT NULL,
+  'platform_schemas_present',
+     (SELECT COALESCE(pg_catalog.jsonb_agg(n.nspname::text ORDER BY n.nspname), '[]'::jsonb)
+        FROM pg_catalog.pg_namespace n
+       WHERE n.nspname IN ('auth', 'storage', 'supabase_migrations', 'extensions', 'graphql', 'realtime', 'vault')),
+  'api_roles_present',
+     (SELECT COALESCE(pg_catalog.jsonb_agg(r.rolname::text ORDER BY r.rolname), '[]'::jsonb)
+        FROM pg_catalog.pg_roles r WHERE r.rolname IN ('anon', 'authenticated', 'service_role', 'authenticator')),
   'public_base_tables',
      (SELECT COALESCE(pg_catalog.jsonb_agg(c.relname::text ORDER BY c.relname), '[]'::jsonb)
         FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -61,15 +68,45 @@ SELECT pg_catalog.jsonb_pretty(pg_catalog.jsonb_build_object(
 ))
   ) AS s1(x)),
   (SELECT s2.x::jsonb FROM (
-SELECT pg_catalog.jsonb_pretty(pg_catalog.jsonb_build_object(
-  'migration_count', pg_catalog.count(*),
-  'latest_migration_version', pg_catalog.max(m.version)
-)) FROM supabase_migrations.schema_migrations m
+SELECT pg_catalog.jsonb_pretty(pg_catalog.jsonb_build_object('ledger_status', st.status)
+  || COALESCE(CASE WHEN st.status = 'present' THEN
+       (SELECT (t.j)::jsonb
+          FROM XMLTABLE('/table/row' PASSING pg_catalog.query_to_xml(
+               'SELECT pg_catalog.jsonb_build_object(''migration_count'', pg_catalog.count(*), '
+               || '''latest_migration_version'', pg_catalog.max(m.version::text))::text AS j '
+               || 'FROM supabase_migrations.schema_migrations m',
+               true, false, '') COLUMNS j text PATH 'j') t)
+     END, pg_catalog.jsonb_build_object('migration_count', NULL, 'latest_migration_version', NULL)))
+FROM (SELECT CASE
+        WHEN pg_catalog.to_regnamespace('supabase_migrations') IS NULL THEN 'absent_schema'
+        WHEN pg_catalog.to_regclass('supabase_migrations.schema_migrations') IS NULL THEN 'absent_table'
+        WHEN NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+                          WHERE a.attrelid = pg_catalog.to_regclass('supabase_migrations.schema_migrations')
+                            AND a.attname = 'version' AND NOT a.attisdropped) THEN 'present_unexpected_columns'
+        WHEN NOT pg_catalog.has_schema_privilege(pg_catalog.to_regnamespace('supabase_migrations')::oid, 'USAGE')
+          OR NOT pg_catalog.has_table_privilege(pg_catalog.to_regclass('supabase_migrations.schema_migrations')::oid, 'SELECT')
+          THEN 'present_not_readable'
+        ELSE 'present' END AS status) st
   ) AS s2(x)),
   (SELECT s3.x::jsonb FROM (
 SELECT pg_catalog.jsonb_pretty(pg_catalog.jsonb_build_object(
-  'storage_bucket_ids', COALESCE(pg_catalog.jsonb_agg(b.id ORDER BY b.id), '[]'::jsonb)
-)) FROM storage.buckets b
+  'buckets_status', st.status,
+  'storage_bucket_ids', CASE WHEN st.status = 'present'
+                             THEN (SELECT COALESCE(pg_catalog.jsonb_agg(t.id ORDER BY t.id), '[]'::jsonb)
+                                     FROM XMLTABLE('/table/row' PASSING pg_catalog.query_to_xml(
+                                          'SELECT b.id::text AS id FROM storage.buckets b', true, false, '')
+                                          COLUMNS id text PATH 'id') t) END
+))
+FROM (SELECT CASE
+        WHEN pg_catalog.to_regnamespace('storage') IS NULL THEN 'absent_schema'
+        WHEN pg_catalog.to_regclass('storage.buckets') IS NULL THEN 'absent_table'
+        WHEN NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+                          WHERE a.attrelid = pg_catalog.to_regclass('storage.buckets')
+                            AND a.attname = 'id' AND NOT a.attisdropped) THEN 'present_unexpected_columns'
+        WHEN NOT pg_catalog.has_schema_privilege(pg_catalog.to_regnamespace('storage')::oid, 'USAGE')
+          OR NOT pg_catalog.has_table_privilege(pg_catalog.to_regclass('storage.buckets')::oid, 'SELECT')
+          THEN 'present_not_readable'
+        ELSE 'present' END AS status) st
   ) AS s3(x))
   ))::text AS t
   FROM tripp_guard WHERE tripp_guard.ok

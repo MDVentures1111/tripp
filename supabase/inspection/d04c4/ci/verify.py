@@ -21,7 +21,7 @@ Q1_KEYS = {
     "table_grants": list, "column_grants": list, "triggers": list, "functions": list,
     "effective_table_privileges": list, "schema_privileges": list, "role_attributes": list,
     "default_privileges": list, "storage_policies": list, "dependent_views": list,
-    "sensitive_literal_flags": list,
+    "sensitive_literal_flags": list, "platform_objects": dict,
 }
 CAPTURE_KEYS = ["tool", "version", "captured_at", "server_version", "executed_as", "transaction_read_only"]
 FN_KEYS = ["signature", "discovery_depth", "discovery_reasons", "effective_execute", "security_definer",
@@ -290,10 +290,42 @@ def main():
     neg = "tripp_inspect_neg"
     rc, out, err, _ = run_query("q2_membership_integrity_aggregates.sql", "neg_q2_empty", db=neg)
     check("P5.q2-empty-db-fails-clearly", rc != 0 and "does not exist" in err)
-    rc, out, err, _ = run_query("q0_migration_history.sql", "neg_q0_empty", db=neg)
-    check("P5.q0-no-ledger-fails-clearly", rc != 0 and "does not exist" in err)
+    # D04-C.4A.6: optional platform objects absent -> explicit findings, never an uncontrolled error.
+    def ledger_case(label, expect):
+        rc, out, err, _ = run_query("qid_identity_session.sql", f"neg_qid_{label}", db=neg)
+        ok = rc == 0
+        if ok:
+            _, led, bk = json_docs(out)
+            ok = led.get("ledger_status") == expect and led.get("migration_count") is None
+        check(f"P5.qid-ledger-{label}-explicit-status", ok, err.strip()[:200])
+        rc, out, err, _ = run_query("q0_migration_history.sql", f"neg_q0_{label}", db=neg)
+        ok = rc == 0
+        if ok:
+            head, vers, bucket = json_docs(out)
+            ok = head.get("ledger_status") == expect and vers == [] and head.get("ledger_present") is (expect not in ("absent_schema", "absent_table"))
+        check(f"P5.q0-ledger-{label}-explicit-status", ok, err.strip()[:200])
+    ledger_case("absent-schema", "absent_schema")
+    rc, out, err, _ = run_query("qid_identity_session.sql", "neg_qid_nostorage", db=neg)
+    check("P5.qid-storage-absent-explicit-status", rc == 0 and json_docs(out)[2] == {"buckets_status": "absent_schema", "storage_bucket_ids": None})
+    psql("CREATE SCHEMA supabase_migrations;", db=neg)
+    ledger_case("absent-table", "absent_table")
+    psql("CREATE TABLE supabase_migrations.schema_migrations (id int);", db=neg)
+    ledger_case("unexpected-columns", "present_unexpected_columns")
+    psql("DROP SCHEMA supabase_migrations CASCADE; CREATE SCHEMA supabase_migrations AUTHORIZATION supabase_admin; "
+         "CREATE TABLE supabase_migrations.schema_migrations (version text PRIMARY KEY, name text); "
+         "REVOKE ALL ON SCHEMA supabase_migrations FROM PUBLIC;", db=neg, user="supabase_admin")
+    _, su, _, _ = psql("SELECT rolsuper FROM pg_roles WHERE rolname = 'postgres';", db=neg)
+    if su.strip() == "f":
+        ledger_case("not-readable", "present_not_readable")
+    else:
+        print("::notice title=P5 not-readable::postgres is superuser in this image; present_not_readable case not reachable")
+    psql("DROP SCHEMA supabase_migrations CASCADE;", db=neg, user="supabase_admin")
     rc, out, err, _ = run_query("q1_catalog_inspection.sql", "neg_q1_noauth", db=neg)
-    check("P5.q1-no-auth-schema-fails-clearly", rc != 0 and "auth.users" in err, err.strip()[:160])
+    ok = rc == 0
+    if ok:
+        po = json_docs(out)[0]["platform_objects"]
+        ok = {r["relation"]: r["present"] for r in po["relations"]}.get("auth.users") is False and po["auth_uid_function_present"] is False
+    check("P5.q1-no-auth-schema-explicit-finding", ok, err.strip()[:200])
     psql("CREATE SCHEMA auth; CREATE TABLE auth.users (id uuid PRIMARY KEY);", db=neg)
     rc, out, err, _ = run_query("q1_catalog_inspection.sql", "neg_q1_notables", db=neg)
     if check("P5.q1-no-tables-no-extensions-runs", rc == 0, err.strip()[:200]):
