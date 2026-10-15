@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase, supabaseUrl, supabasePublishableKey } from './supabase';
 import { isValidUuid } from './dealValidation';
 
 export type DocumentType = 'landlord_proposal' | 'letter_of_intent' | 'other';
@@ -57,7 +57,7 @@ async function callFunction<T>(name: string, organizationId: string, dealId: str
   assertScope(organizationId, dealId);
   const { data: { session }, error: sessionError } = await supabase.auth.getSession();
   if (sessionError || !session?.access_token) throw new Error('Your session has expired. Please sign in again.');
-  const baseUrl = supabase.supabaseUrl;
+  const baseUrl = supabaseUrl;
   const query = new URLSearchParams({ organizationId, dealId });
   const endpoint = `${baseUrl}/functions/v1/${name}${method === 'GET' ? `?${query}` : ''}`;
   let response: Response;
@@ -66,7 +66,7 @@ async function callFunction<T>(name: string, organizationId: string, dealId: str
       method,
       headers: {
         Authorization: `Bearer ${session.access_token}`,
-        apikey: supabase.supabaseKey,
+        apikey: supabasePublishableKey,
         ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
       },
       ...(method === 'POST' ? { body: JSON.stringify({ organizationId, dealId, ...body }) } : {}),
@@ -118,7 +118,7 @@ export async function downloadDealDocument(organizationId: string, dealId: strin
     'deal-document-download', organizationId, dealId, { documentId }, 'POST',
   );
   const parsed = new URL(result.url);
-  if (parsed.protocol !== 'https:' || parsed.hostname !== new URL(supabase.supabaseUrl).hostname) {
+  if (parsed.protocol !== 'https:' || parsed.hostname !== new URL(supabaseUrl).hostname) {
     throw new Error('Unexpected document download URL.');
   }
   // Request a new signed URL on every click. Never persist or cache it.
