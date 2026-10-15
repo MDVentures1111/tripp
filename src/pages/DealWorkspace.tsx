@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { DealDocuments } from './DealDocuments';
+import { DealIntelligence } from './DealIntelligence';
 import { useAuth } from '../context/AuthContext';
 import { getDeal, updateDeal, DealValidationError } from '../lib/deals';
 import { hasFieldErrors, isValidUuid, validateDealUpdate, type DealFieldErrors } from '../lib/dealValidation';
@@ -238,6 +239,7 @@ export const DealWorkspace = () => {
               </dl>
             </section>
           )}
+          <DealIntelligence dealId={id} />
           <DealDocuments organizationId={resolvedOrgId} dealId={id} />
         </>
       ) : null}
