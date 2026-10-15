@@ -28,4 +28,6 @@ if (environment === 'production' && projectRef !== PRODUCTION_PROJECT_REF) {
   throw new Error('Safety block: production environment points to an unexpected Supabase project.');
 }
 
+export const supabaseUrl = url;
+export const supabasePublishableKey = key;
 export const supabase: SupabaseClient = createClient(url, key);
