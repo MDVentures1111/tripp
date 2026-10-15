@@ -1,0 +1,47 @@
+name: D04 Inspection SQL Ephemeral Verification
+# CI-ONLY. Runs Q0/Q1/Q2 against a disposable local Supabase stack. No secrets, no project link,
+# no production access. Raw query output stays on the runner and is deleted; only PASS/FAIL is logged.
+on:
+  push:
+    branches: [d04-c-document-backend-mvp]
+    paths:
+      - 'supabase/inspection/**'
+      - '.github/workflows/d04-inspection-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d04-inspection-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-inspection-sql:
+    name: Verify Q0/Q1/Q2 on ephemeral local Supabase
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify inspection artifact checksums
+        working-directory: supabase/inspection/d04c4
+        run: sha256sum -c SHA256SUMS
+      - name: Assert no production link or credentials
+        run: |
+          test ! -e supabase/.temp/project-ref
+          for v in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_REF DATABASE_URL PGPASSWORD; do
+            if [ -n "${!v:-}" ]; then echo "::error::$v is set"; exit 1; fi
+          done
+          if grep -rqn "ufcgsdpqfqeifjzzcuei" supabase/inspection/d04c4/ci; then echo "::error::production ref in CI fixtures"; exit 1; fi
+      - uses: supabase/setup-cli@v3.0.1
+        with:
+          version: 2.120.0
+      - name: Prepare CI-only schema prerequisites
+        run: cp supabase/ci/bootstrap_organizations.sql supabase/migrations/20261009000000_ci_bootstrap_organizations.sql
+      - name: Start isolated local Supabase stack
+        run: supabase start --exclude studio,imgproxy,logflare,vector,supavisor
+      - name: Run ephemeral inspection verification
+        run: python3 supabase/inspection/d04c4/ci/verify.py
+      - name: Shut down isolated stack
+        if: always()
+        run: supabase stop --no-backup

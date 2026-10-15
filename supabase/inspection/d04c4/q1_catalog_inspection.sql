@@ -1,4 +1,4 @@
--- TRIPP D04-C.4  Q1 v2  Production catalog inspection (READ ONLY, catalog metadata only)
+-- TRIPP D04-C.4  Q1 v2.1  Production catalog inspection (READ ONLY, catalog metadata only)
 -- Reads pg_catalog / pg_policies only. Touches NO application table rows.
 -- Run once, as-is, in the Supabase Dashboard SQL Editor of project ufcgsdpqfqeifjzzcuei,
 -- ONLY after explicit authorization. Output: one JSON document (single row, single column).
@@ -212,19 +212,19 @@ literal_flags AS (
 )
 SELECT jsonb_pretty(jsonb_build_object(
   'capture', jsonb_build_object(
-     'tool', 'tripp-d04c4-q1', 'version', '2', 'captured_at', now(),
+     'tool', 'tripp-d04c4-q1', 'version', '2.1', 'captured_at', now(),
      'server_version', current_setting('server_version'),
      'executed_as', current_user,
      'transaction_read_only', current_setting('transaction_read_only')),
   'missing_tables',  (SELECT COALESCE(jsonb_agg(relname), '[]') FROM expected WHERE relname NOT IN (SELECT relname FROM target)),
-  'tables',          (SELECT jsonb_agg(jsonb_build_object('table', relname, 'kind', relkind, 'owner', pg_catalog.pg_get_userbyid(relowner),
-                                                           'rls_enabled', relrowsecurity, 'rls_forced', relforcerowsecurity) ORDER BY relname) FROM target),
-  'columns',         (SELECT jsonb_agg(jsonb_build_object('table', relname, 'column', attname, 'type', type, 'not_null', attnotnull,
-                                                           'default', default_expr, 'identity', attidentity, 'generated', attgenerated) ORDER BY relname, attnum) FROM cols),
+  'tables',          (SELECT COALESCE(jsonb_agg(jsonb_build_object('table', relname, 'kind', relkind, 'owner', pg_catalog.pg_get_userbyid(relowner),
+                                                           'rls_enabled', relrowsecurity, 'rls_forced', relforcerowsecurity) ORDER BY relname), '[]') FROM target),
+  'columns',         (SELECT COALESCE(jsonb_agg(jsonb_build_object('table', relname, 'column', attname, 'type', type, 'not_null', attnotnull,
+                                                           'default', default_expr, 'identity', attidentity, 'generated', attgenerated) ORDER BY relname, attnum), '[]') FROM cols),
   'enum_types',      (SELECT COALESCE(jsonb_agg(jsonb_build_object('type', typname, 'labels', labels)), '[]') FROM enums),
-  'constraints',     (SELECT jsonb_agg(jsonb_build_object('table', relname, 'name', conname, 'type', contype, 'validated', convalidated, 'definition', definition) ORDER BY relname, conname) FROM cons),
+  'constraints',     (SELECT COALESCE(jsonb_agg(jsonb_build_object('table', relname, 'name', conname, 'type', contype, 'validated', convalidated, 'definition', definition) ORDER BY relname, conname), '[]') FROM cons),
   'inbound_foreign_keys', (SELECT COALESCE(jsonb_agg(jsonb_build_object('from', from_table, 'to', to_table, 'name', conname, 'definition', definition) ORDER BY from_table, conname), '[]') FROM inbound_fk),
-  'indexes',         (SELECT jsonb_agg(jsonb_build_object('table', relname, 'index', index_name, 'unique', indisunique, 'primary', indisprimary, 'valid', indisvalid, 'definition', definition) ORDER BY relname, index_name) FROM idx),
+  'indexes',         (SELECT COALESCE(jsonb_agg(jsonb_build_object('table', relname, 'index', index_name, 'unique', indisunique, 'primary', indisprimary, 'valid', indisvalid, 'definition', definition) ORDER BY relname, index_name), '[]') FROM idx),
   'policies',        (SELECT COALESCE(jsonb_agg(jsonb_build_object('table', tablename, 'policy', policyname, 'permissive', permissive, 'roles', roles, 'command', cmd, 'using', qual, 'with_check', with_check) ORDER BY tablename, policyname), '[]') FROM pols),
   'table_grants',    (SELECT COALESCE(jsonb_agg(jsonb_build_object('table', relname, 'grantee', grantee, 'privilege', privilege_type) ORDER BY relname, grantee, privilege_type), '[]') FROM tgrants),
   'column_grants',   (SELECT COALESCE(jsonb_agg(jsonb_build_object('table', relname, 'column', attname, 'grantee', grantee, 'privilege', privilege_type)), '[]') FROM cgrants),
@@ -232,11 +232,11 @@ SELECT jsonb_pretty(jsonb_build_object(
   'functions',       (SELECT COALESCE(jsonb_agg(jsonb_build_object('signature', signature, 'discovery_depth', discovery_depth, 'discovery_reasons', discovery_reasons,
                                                            'effective_execute', effective_execute, 'security_definer', security_definer, 'volatility', provolatile, 'language', language,
                                                            'owner', owner, 'config', config, 'execute_grantees', execute_grantees, 'body_md5', body_md5, 'definition', definition) ORDER BY signature), '[]') FROM fmeta),
-  'effective_table_privileges', (SELECT jsonb_agg(jsonb_build_object('table', relname, 'role', role, 'privilege', priv, 'on_table', on_table, 'on_any_column', on_any_column)
-                                                 ORDER BY relname, role, priv) FROM effective_table_privs),
-  'schema_privileges', (SELECT jsonb_agg(jsonb_build_object('role', role, 'public_usage', public_usage, 'public_create', public_create)) FROM schema_privs),
-  'role_attributes',   (SELECT jsonb_agg(jsonb_build_object('role', rolname, 'superuser', rolsuper, 'bypassrls', rolbypassrls, 'inherit', rolinherit,
-                                                           'can_login', rolcanlogin, 'member_of', member_of) ORDER BY rolname) FROM role_attrs),
+  'effective_table_privileges', (SELECT COALESCE(jsonb_agg(jsonb_build_object('table', relname, 'role', role, 'privilege', priv, 'on_table', on_table, 'on_any_column', on_any_column)
+                                                 ORDER BY relname, role, priv), '[]') FROM effective_table_privs),
+  'schema_privileges', (SELECT COALESCE(jsonb_agg(jsonb_build_object('role', role, 'public_usage', public_usage, 'public_create', public_create)), '[]') FROM schema_privs),
+  'role_attributes',   (SELECT COALESCE(jsonb_agg(jsonb_build_object('role', rolname, 'superuser', rolsuper, 'bypassrls', rolbypassrls, 'inherit', rolinherit,
+                                                           'can_login', rolcanlogin, 'member_of', member_of) ORDER BY rolname), '[]') FROM role_attrs),
   'default_privileges', (SELECT COALESCE(jsonb_agg(jsonb_build_object('for_objects_created_by', for_objects_created_by, 'object_type', object_type,
                                                            'grantee', grantee, 'privilege', privilege_type)), '[]') FROM default_privs),
   'storage_policies',  (SELECT COALESCE(jsonb_agg(jsonb_build_object('policy', policyname, 'permissive', permissive, 'roles', roles, 'command', cmd,
