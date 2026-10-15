@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { DealDocuments } from './DealDocuments';
 import { useAuth } from '../context/AuthContext';
 import { getDeal, updateDeal, DealValidationError } from '../lib/deals';
 import { hasFieldErrors, isValidUuid, validateDealUpdate, type DealFieldErrors } from '../lib/dealValidation';
@@ -237,10 +238,7 @@ export const DealWorkspace = () => {
               </dl>
             </section>
           )}
-          <section className="tripp-workspace-card tripp-workspace-next">
-            <h2>Document Intelligence</h2>
-            <p>Proposal uploads, broker-verified extraction, financial comparisons, and Brief Me will be introduced in subsequent milestones.</p>
-          </section>
+          <DealDocuments organizationId={resolvedOrgId} dealId={id} />
         </>
       ) : null}
     </div>
