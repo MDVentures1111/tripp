@@ -36,7 +36,7 @@ async function invoke(name:string,token:string,body:unknown,method="POST"){
  const response=await fetch(url,{method,headers:{apikey:anon,authorization:"Bearer "+token,...(method==="POST"?{"content-type":"application/json"}:{})},...(method==="POST"?{body:JSON.stringify(body)}:{})});
  return {status:response.status,data:await response.json().catch(()=>({}))};
 }
-function check(ok:boolean,message:string){if(!ok)throw Error(message)}
+function check(ok:boolean,message:string){if(!ok){console.log("::error title=D04 E2E assertion::"+message.replace(/[\r\n]+/g," ").slice(0,900));throw Error(message)}}
 const pdf=Deno.env.get("TRIPP_INSPECTOR_POSITIVE_E2E")==="true"?canonicalBlankPdf():new TextEncoder().encode("%PDF-1.4\n1 0 obj\n%%EOF\n");
 const input={organizationId:orgA,dealId:dealA,filename:"ci.pdf",documentType:"other",fileKind:"pdf",fileSizeBytes:pdf.length};
 const viewerResponse=await invoke("upload-initiate",viewer.token,input);
@@ -331,7 +331,7 @@ if(Deno.env.get("TRIPP_INSPECTOR_POSITIVE_E2E")!=="true"){
  check(okOrigin.acao==="http://127.0.0.1:54321","Allowed origin not echoed");
  const badOrigin=await call("list",viewer.token,null,q(orgA,dealA),"https://evil.example");
  check(badOrigin.acao===null,"Foreign origin received CORS allow header");
- console.log("D04-C.3 role/tenant matrix",JSON.stringify(results));
+ console.log("::notice title=D04-C.3 role/tenant matrix::"+JSON.stringify(results));
  console.log("D04-C.3 role and tenant authorization matrix passed");
 }
 
