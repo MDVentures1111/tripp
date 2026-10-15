@@ -48,7 +48,7 @@ jobs:
       - name: Prepare CI-only schema prerequisites
         run: |
           mkdir -p supabase/migrations
-          cp supabase/ci/bootstrap_organizations.sql supabase/migrations/20261009000000_ci_bootstrap_organizations.sql
+          cp supabase/staging/baseline/00_org_membership.sql supabase/migrations/20261009000000_ci_staging_org_baseline.sql
       - name: Start isolated local Supabase stack
         run: supabase start --exclude studio,imgproxy,logflare,vector,supavisor
       - name: Show local stack status
@@ -102,7 +102,7 @@ jobs:
           deno-version: v2.x
       - name: Prepare isolated schema prerequisites
         run: |
-          cp supabase/ci/bootstrap_organizations.sql supabase/migrations/20261009000000_ci_bootstrap_organizations.sql
+          cp supabase/staging/baseline/00_org_membership.sql supabase/migrations/20261009000000_ci_staging_org_baseline.sql
       - name: Start local Supabase
         run: supabase start --exclude studio,imgproxy,logflare,vector,supavisor
       - name: Start isolated mock scanner

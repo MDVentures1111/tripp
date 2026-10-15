@@ -28,7 +28,7 @@ async function seed(table:string,rows:unknown){
  const {error}=await admin.from(table).insert(rows);
  if(error)throw Error(`Seed ${table}: ${error.message}`);
 }
-await seed("organizations",[{id:orgA,name:"CI A"},{id:orgB,name:"CI B"}]);
+await seed("organizations",[{id:orgA,name:"CI A",slug:`ci-a-${orgA.slice(0,8)}`},{id:orgB,name:"CI B",slug:`ci-b-${orgB.slice(0,8)}`}]);
 await seed("organization_memberships",[
  {organization_id:orgA,user_id:owner.id,role:"admin"},
  {organization_id:orgA,user_id:viewer.id,role:"viewer"},

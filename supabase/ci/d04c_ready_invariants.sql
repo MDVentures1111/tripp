@@ -8,8 +8,8 @@ INSERT INTO auth.users(id,instance_id,aud,role,email,created_at,updated_at) VALU
  ('71000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000000','authenticated','authenticated','inv-a-admin@example.test',now(),now()),
  ('71000000-0000-4000-8000-000000000002','00000000-0000-0000-0000-000000000000','authenticated','authenticated','inv-a-viewer@example.test',now(),now()),
  ('71000000-0000-4000-8000-000000000003','00000000-0000-0000-0000-000000000000','authenticated','authenticated','inv-b-admin@example.test',now(),now());
-INSERT INTO public.organizations(id,name) VALUES
- ('72000000-0000-4000-8000-000000000001','INV A'),('72000000-0000-4000-8000-000000000002','INV B');
+INSERT INTO public.organizations(id,name,slug) VALUES
+ ('72000000-0000-4000-8000-000000000001','INV A','inv-a'),('72000000-0000-4000-8000-000000000002','INV B','inv-b');
 INSERT INTO public.organization_memberships(organization_id,user_id,role) VALUES
  ('72000000-0000-4000-8000-000000000001','71000000-0000-4000-8000-000000000001','admin'),
  ('72000000-0000-4000-8000-000000000001','71000000-0000-4000-8000-000000000002','viewer'),

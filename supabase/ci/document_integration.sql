@@ -7,9 +7,9 @@ CREATE POLICY ci_membership_read ON public.organization_memberships FOR SELECT T
 INSERT INTO auth.users(id,instance_id,aud,role,email,created_at,updated_at) VALUES
  ('10000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000000','authenticated','authenticated','ci-a@example.test',now(),now()),
  ('10000000-0000-4000-8000-000000000002','00000000-0000-0000-0000-000000000000','authenticated','authenticated','ci-b@example.test',now(),now());
-INSERT INTO public.organizations(id,name) VALUES
- ('20000000-0000-4000-8000-000000000001','CI A'),
- ('20000000-0000-4000-8000-000000000002','CI B');
+INSERT INTO public.organizations(id,name,slug) VALUES
+ ('20000000-0000-4000-8000-000000000001','CI A','ci-a'),
+ ('20000000-0000-4000-8000-000000000002','CI B','ci-b');
 INSERT INTO public.organization_memberships(organization_id,user_id,role) VALUES
  ('20000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','admin'),
  ('20000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000002','viewer');

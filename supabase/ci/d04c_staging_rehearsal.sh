@@ -18,12 +18,14 @@ q() { psql "$STAGING_DB_URL" -X -q -v ON_ERROR_STOP=1 "$@"; }
 expect_fail G1.production-ref "production project ref" env STAGING_PROJECT_REF=ufcgsdpqfqeifjzzcuei bash "$S" baseline
 expect_fail G2.prod-url "production project ref" env STAGING_DB_URL="postgresql://postgres.ufcgsdpqfqeifjzzcuei:x@aws-0-us-east-1.pooler.supabase.com:5432/postgres" bash "$S" baseline
 expect_fail G3.remote-ref-mismatch "does not name" env TRIPP_LOCAL_REHEARSAL=0 STAGING_PROJECT_REF=abcdefghijklmnopqrst bash "$S" baseline
-expect_fail G4.unpopulated-baseline "not populated" bash "$S" baseline
+UNPOP=$(mktemp); printf -- "-- TRIPP_BASELINE_UNPOPULATED\n" > "$UNPOP"
+expect_fail G4.unpopulated-baseline "not populated" env TRIPP_ORG_BASELINE="$UNPOP" bash "$S" baseline
 expect_fail G5.push-before-repair "run repair first" bash "$S" push
 expect_fail G6.repair-before-baseline "run baseline first" bash "$S" repair
 
-# Bootstrap exactly as staging will
-export TRIPP_ORG_BASELINE="$CI/bootstrap_organizations.sql"
+# Bootstrap exactly as staging will, with the production-Q1-derived baseline
+unset TRIPP_ORG_BASELINE
+[ -z "$(head -1 "$ROOT/supabase/staging/baseline/00_org_membership.sql" | grep TRIPP_BASELINE_UNPOPULATED)" ] && ok G7.real-baseline-populated || bad G7.real-baseline-populated
 expect_ok   B1.baseline bash "$S" baseline
 expect_fail B2.baseline-not-fresh "not a fresh project" bash "$S" baseline
 expect_ok   B3.repair bash "$S" repair

@@ -4,7 +4,7 @@
 BEGIN;
 INSERT INTO auth.users(id,instance_id,aud,role,email,created_at,updated_at) VALUES
  ('81000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000000','authenticated','authenticated','rb@example.test',now(),now());
-INSERT INTO public.organizations(id,name) VALUES ('82000000-0000-4000-8000-000000000001','RB');
+INSERT INTO public.organizations(id,name,slug) VALUES ('82000000-0000-4000-8000-000000000001','RB','rb');
 INSERT INTO public.organization_memberships(organization_id,user_id,role) VALUES
  ('82000000-0000-4000-8000-000000000001','81000000-0000-4000-8000-000000000001','admin');
 INSERT INTO public.deals(id,organization_id,deal_name,created_by) VALUES

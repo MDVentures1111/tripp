@@ -20,7 +20,7 @@ jobs:
           deno-version: v2.x
       - name: Start isolated Supabase
         run: |
-          cp supabase/ci/bootstrap_organizations.sql supabase/migrations/20261009000000_ci_bootstrap_organizations.sql
+          cp supabase/staging/baseline/00_org_membership.sql supabase/migrations/20261009000000_ci_staging_org_baseline.sql
           supabase start --exclude studio,imgproxy,logflare,vector,supavisor
       - name: Start isolated mock ClamAV and containerized inspector
         run: |
