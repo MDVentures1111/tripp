@@ -1,0 +1,26 @@
+name: D04 Metadata Audit
+on:
+  workflow_dispatch:
+    inputs:
+      project_ref:
+        description: Confirm production project reference
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  audit:
+    if: ${{ inputs.project_ref == 'ufcgsdpqfqeifjzzcuei' }}
+    runs-on: ubuntu-latest
+    environment: production-audit
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit database metadata
+        env:
+          AUDIT_DB_URL: ${{ secrets.PRODUCTION_AUDIT_DB_URL }}
+          PGOPTIONS: "-c default_transaction_read_only=on -c statement_timeout=30000"
+        run: |
+          set -euo pipefail
+          test -n "$AUDIT_DB_URL"
+          psql "$AUDIT_DB_URL" -X -v ON_ERROR_STOP=1 -f supabase/audit/d04_metadata_readonly.sql
