@@ -1,0 +1,25 @@
+name: D04 Ledger Ordering Gate
+on:
+  push:
+    branches: [d04-c-document-backend-mvp]
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/ci/d04_ledger_order_check.py'
+      - '.github/workflows/d04-ledger-order.yml'
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'supabase/ci/d04_ledger_order_check.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  static-ledger-order:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python supabase/ci/d04_ledger_order_check.py
