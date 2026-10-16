@@ -1,0 +1,38 @@
+name: D04 Production-Shaped Ledger Push
+on:
+  push:
+    branches: [d04-c-document-backend-mvp]
+    paths:
+      - 'supabase/ci/d04_production_ledger_push_rehearsal.sh'
+      - 'supabase/staging/**'
+      - 'supabase/migrations/**'
+      - '.github/workflows/d04-production-ledger-rehearsal.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  interleaved-ledger-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v3.0.1
+        with:
+          version: 2.120.0
+      - name: Install psql if missing
+        run: command -v psql || (sudo apt-get update -q && sudo apt-get install -y -q postgresql-client)
+      - name: Start fresh local Supabase with migrations withheld
+        run: |
+          set -euo pipefail
+          mv supabase/migrations /tmp/d04-push-migrations
+          mkdir supabase/migrations
+          supabase start --exclude studio,imgproxy,logflare,vector,supavisor,edge-runtime
+          rmdir supabase/migrations
+          mv /tmp/d04-push-migrations supabase/migrations
+      - name: Reproduce interleaved production ledger and attempt real CLI push
+        env:
+          TRIPP_LOCAL_REHEARSAL: '1'
+        run: bash supabase/ci/d04_production_ledger_push_rehearsal.sh
+      - name: Stop isolated stack
+        if: always()
+        run: supabase stop --no-backup
