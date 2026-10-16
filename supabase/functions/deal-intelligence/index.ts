@@ -24,8 +24,8 @@ Deno.serve(async (req) => {
   const { data: deal, error: dealError } = await db.from("deals").select("id,organization_id,deal_name,tenant_name,deal_type,status,market,target_square_feet,notes").eq("id", dealId).maybeSingle();
   if (dealError) return respond(500, { error: "Unable to load deal" });
   if (!deal) return respond(404, { error: "Deal not found" });
-  const { data: membership, error: membershipError } = await db.from("organization_memberships").select("id").eq("organization_id", deal.organization_id).eq("user_id", identity.user.id).maybeSingle();
-  if (membershipError || !isAuthorizedForDeal(deal.organization_id, membership ? [deal.organization_id] : [])) return respond(403, { error: "Organization access denied" });
+  const { data: membership, error: membershipError } = await db.from("organization_memberships").select("organization_id").eq("organization_id", deal.organization_id).eq("user_id", identity.user.id).maybeSingle();
+  if (membershipError || !isAuthorizedForDeal(deal.organization_id, membership ? [membership.organization_id] : [])) return respond(403, { error: "Organization access denied" });
   const { data: quotaAllowed, error: quotaError } = await db.rpc("consume_deal_ai_quota");
   if (quotaError) return respond(503, { error: "AI usage control unavailable" });
   if (quotaAllowed !== true) return respond(429, { error: "Daily AI analysis limit reached" });
