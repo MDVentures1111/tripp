@@ -30,6 +30,7 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno check supabase/functions/deal-intelligence/index.ts
+      - run: deno test supabase/functions/deal-intelligence/access_test.ts
   quota:
     runs-on: ubuntu-latest
     services:
