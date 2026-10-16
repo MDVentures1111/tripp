@@ -25,20 +25,11 @@ Deno.serve(async (req) => {
       b.filename.length > 255 || !b.filename.trim() || /[\\/\x00-\x1f\x7f]/.test(b.filename) ||
       !b.filename.toLowerCase().endsWith("." + kind.ext))
     return json(req, { error: "Unsupported or invalid file.", code: "unsupported_file" }, 400);
-  // Fail closed until signed-upload overwrite and restrictive-RLS behavior are tested.
-  if (Deno.env.get("TRIPP_ENABLE_DOCUMENT_UPLOADS") !== "verified")
-    return json(req, { error: "Document uploads are not yet enabled.", code: "uploads_disabled" }, 503);
   try {
     const scope = await authorize(req, b.organizationId, b.dealId, true);
     if (scope instanceof Response) return scope;
     const documentId = crypto.randomUUID();
     const path = `${scope.orgId}/${scope.dealId}/${documentId}/source.${kind.ext}`;
-    const {data:admitted,error:admissionError}=await scope.admin.rpc("tripp_admit_document_upload",{
-      p_id:documentId,p_org:scope.orgId,p_user:scope.userId,
-    });
-    if(admissionError) { auditDocumentEvent("upload_admission",{organizationId:scope.orgId,userId:scope.userId,outcome:"error",status:503,reason:"admission_rpc_failed"}); return json(req,{error:"Upload admission unavailable."},503); }
-    if(!admitted) { auditDocumentEvent("upload_admission",{organizationId:scope.orgId,userId:scope.userId,outcome:"denied",status:429,reason:"quota_exceeded"}); return json(req,{error:"Upload quota exceeded. Try again later."},429); }
-
     const { error: insertError } = await scope.admin.from("deal_documents").insert({
       id: documentId, organization_id: scope.orgId, deal_id: scope.dealId,
       document_type: b.documentType, original_filename: b.filename.trim(),
