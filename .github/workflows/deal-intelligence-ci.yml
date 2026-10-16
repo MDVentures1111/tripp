@@ -30,3 +30,24 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno check supabase/functions/deal-intelligence/index.ts
+  quota:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: tripp_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tripp_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify quota isolation and privileges
+        run: psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d tripp_ci -f supabase/tests/deal_ai_quota.sql
+        env:
+          PGPASSWORD: test
