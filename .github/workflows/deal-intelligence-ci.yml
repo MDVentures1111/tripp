@@ -52,7 +52,11 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d tripp_ci -f supabase/tests/deal_tenant_isolation.sql
         env:
           PGPASSWORD: test
+      - name: Create isolated quota database
+        run: createdb -h localhost -U postgres tripp_quota
+        env:
+          PGPASSWORD: test
       - name: Verify quota isolation and privileges
-        run: psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d tripp_ci -f supabase/tests/deal_ai_quota.sql
+        run: psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d tripp_quota -f supabase/tests/deal_ai_quota.sql
         env:
           PGPASSWORD: test
