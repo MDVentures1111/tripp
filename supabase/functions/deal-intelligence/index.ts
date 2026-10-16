@@ -1,14 +1,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.86.0";
 import { isAuthorizedForDeal } from "./access.ts";
 import { runGate } from "./gate.ts";
+import { methodStatus } from "./http.ts";
 const headers = { "Access-Control-Allow-Origin": Deno.env.get("TRIPP_APP_ORIGIN") ?? "https://tripp-phi.vercel.app", "Access-Control-Allow-Headers": "authorization, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS", "Content-Type": "application/json", "Vary": "Origin" };
 const respond = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers });
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 Deno.serve(async (req) => {
   const allowed = Deno.env.get("TRIPP_APP_ORIGIN") ?? "https://tripp-phi.vercel.app";
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
-  if (req.method !== "POST") return respond(405, { error: "Method not allowed" });
   if (req.headers.get("origin") && req.headers.get("origin") !== allowed) return respond(403, { error: "Origin not allowed" });
+  const method = methodStatus(req.method);
+  if (method === 204) return new Response(null, { status: 204, headers });
+  if (method !== 200) return respond(method, { error: "Method not allowed" });
   if (Number(req.headers.get("content-length") ?? 0) > 2048) return respond(413, { error: "Request too large" });
   const jwt = req.headers.get("authorization")?.match(/^Bearer (.+)$/i)?.[1];
   if (!jwt) return respond(401, { error: "Authentication required" });
