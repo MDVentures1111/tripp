@@ -106,7 +106,7 @@ export function DealDocuments({ organizationId, dealId }: { organizationId: stri
       const result = await uploadDealDocument(organizationId, dealId, file, documentType);
       if (!activeRef.current || generation !== generationRef.current) return;
       setFile(null);
-      setNotice(result.uploadStatus === 'ready' ? 'Document uploaded and approved.' : 'Upload received. Security inspection in progress.');
+      setNotice(result.uploadStatus === 'ready' ? 'Document uploaded and structurally validated.' : 'Upload received. Validation in progress.');
     } catch (caught) {
       if (activeRef.current && generation === generationRef.current) setError(caught instanceof Error ? caught.message : 'Upload failed.');
     } finally {
@@ -125,7 +125,7 @@ export function DealDocuments({ organizationId, dealId }: { organizationId: stri
   return (
     <section className="tripp-workspace-card tripp-documents" aria-labelledby="tripp-documents-title">
       <div className="tripp-workspace-card-head">
-        <div><h2 id="tripp-documents-title">Deal documents</h2><p>Secure PDF and DOCX uploads, subject to security inspection.</p></div>
+        <div><h2 id="tripp-documents-title">Deal documents</h2><p>Private PDF and DOCX uploads with structural validation (not antivirus scanning).</p></div>
         <button type="button" className="tripp-deals-action" onClick={() => { void refresh(); }} disabled={loading || busy}><RefreshCw size={16} aria-hidden="true" /> Refresh</button>
       </div>
       {canUpload && <div className="tripp-documents-upload">
@@ -145,7 +145,7 @@ export function DealDocuments({ organizationId, dealId }: { organizationId: stri
         {documents.map((doc) => <li key={doc.id} className="tripp-documents-item">
           <FileText size={20} aria-hidden="true" />
           <div className="tripp-documents-info"><strong>{doc.originalFilename}</strong><span>{LABELS[doc.documentType] ?? 'Document'} · {new Intl.NumberFormat().format(doc.fileSizeBytes)} bytes</span>
-            <span>Status: {doc.uploadStatus}{doc.uploadStatus === 'failed' ? ` — ${REASONS[doc.failureReason ?? ''] ?? 'Security inspection failed'}` : ''}</span>
+            <span>Status: {doc.uploadStatus}{doc.uploadStatus === 'failed' ? ` — ${REASONS[doc.failureReason ?? ''] ?? 'File validation failed'}` : ''}</span>
           </div>
           {doc.uploadStatus === 'ready' && <button className="tripp-deals-action" type="button" disabled={downloadingId === doc.id} onClick={() => { void download(doc.id); }}><Download size={16} aria-hidden="true" /> {downloadingId === doc.id ? 'Opening…' : 'Download'}</button>}
         </li>)}
