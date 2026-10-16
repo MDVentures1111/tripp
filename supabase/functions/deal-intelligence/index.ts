@@ -26,10 +26,18 @@ Deno.serve(async (req) => {
   if (dealError) return respond(500, { error: "Unable to load deal" });
   if (!deal) return respond(404, { error: "Deal not found" });
   const { data: membership, error: membershipError } = await db.from("organization_memberships").select("organization_id").eq("organization_id", deal.organization_id).eq("user_id", identity.user.id).maybeSingle();
-  if (membershipError || await runGate([async () => isAuthorizedForDeal(deal.organization_id, membership ? [membership.organization_id] : [])]) !== -1) return respond(403, { error: "Organization access denied" });
-  const { data: quotaAllowed, error: quotaError } = await db.rpc("consume_deal_ai_quota");
-  if (quotaError) return respond(503, { error: "AI usage control unavailable" });
-  if (quotaAllowed !== true) return respond(429, { error: "Daily AI analysis limit reached" });
+  if (membershipError) return respond(403, { error: "Organization access denied" });
+  let quotaError = false;
+  const deniedAt = await runGate([
+    async () => isAuthorizedForDeal(deal.organization_id, membership ? [membership.organization_id] : []),
+    async () => {
+      const quota = await db.rpc("consume_deal_ai_quota");
+      quotaError = Boolean(quota.error);
+      return !quotaError && quota.data === true;
+    },
+  ]);
+  if (deniedAt === 0) return respond(403, { error: "Organization access denied" });
+  if (deniedAt === 1) return quotaError ? respond(503, { error: "AI usage control unavailable" }) : respond(429, { error: "Daily AI analysis limit reached" });
   const facts = { deal_name: deal.deal_name, tenant_name: deal.tenant_name, deal_type: deal.deal_type, status: deal.status, market: deal.market, target_square_feet: deal.target_square_feet, notes: String(deal.notes ?? "").slice(0, 3000) };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
