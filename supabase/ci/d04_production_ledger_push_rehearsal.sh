@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Reproduce the production ledger anomaly against disposable LOCAL Supabase.
-# Does not claim to replay the production AI quota DDL or certify db push.
+# Rehearse the PROPOSED post-reconciliation ledger against disposable LOCAL Supabase.
+# Production itself records ONLY the AI quota version. This fixture deliberately records\n# the three baseline versions first to simulate a FUTURE authorized repair.\n# It does not replay the AI quota DDL or certify deployment.
 set -euo pipefail
 test "${TRIPP_LOCAL_REHEARSAL:-}" = 1 || { echo 'REFUSED: TRIPP_LOCAL_REHEARSAL=1 required'; exit 2; }
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -21,9 +21,9 @@ VALUES ('20261016010702','deal_ai_quota',ARRAY[]::text[])
 ON CONFLICT(version) DO NOTHING;
 SQL
 test "$(psql "$STAGING_DB_URL" -XAtqc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version IN ('20261010000000','20261011000000','20261012000000','20261016010702')")" = 4
-echo 'REPRODUCED: production-shaped four-version ledger in disposable local stack'
+echo 'REPRODUCED: proposed post-repair four-version ledger in disposable local stack'
 echo 'Now testing CLI migration push behavior; this may fail and should block release.'
 # A failure here is important evidence; do not suppress.
 supabase db push --db-url "$STAGING_DB_URL" --yes
 psql "$STAGING_DB_URL" -XAtqc "SELECT version FROM supabase_migrations.schema_migrations ORDER BY version"
-echo 'PARTIAL PASS: migration push accepted interleaved ledger; AI quota DDL equivalence still unverified.'
+echo 'PARTIAL PASS: CLI push accepted proposed repaired ledger; production AI DDL equivalence and production repair remain unverified.'
