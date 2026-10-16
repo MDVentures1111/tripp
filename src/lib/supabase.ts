@@ -4,12 +4,12 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 /** No implicit production fallback. Production must be explicitly configured at deployment. */
 const url = (import.meta.env.VITE_SUPABASE_URL ?? '').trim();
-const key = (import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
+const key = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
 const environment = (import.meta.env.VITE_APP_ENV ?? 'development').trim();
 const PRODUCTION_PROJECT_REF = 'ufcgsdpqfqeifjzzcuei';
 
 if (!url || !key) {
-  throw new Error('Supabase environment is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+  throw new Error('Supabase environment is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.');
 }
 let projectRef: string;
 try {
