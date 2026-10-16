@@ -1,0 +1,32 @@
+name: TRIPP Deal Intelligence MVP CI
+on:
+  push:
+    branches: [feature/deal-intelligence-mvp]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'supabase/functions/deal-intelligence/**'
+      - 'supabase/migrations/20261024000000_deal_ai_quota.sql'
+      - '.github/workflows/deal-intelligence-ci.yml'
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://example.supabase.co
+          VITE_SUPABASE_ANON_KEY: ci-public-test-key
+          VITE_APP_ENV: development
+  edge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check supabase/functions/deal-intelligence/index.ts
