@@ -53,7 +53,9 @@ jobs:
         env:
           PGPASSWORD: test
       - name: Create isolated quota database
-        run: createdb -h localhost -U postgres tripp_quota
+        run: |
+          createdb -h localhost -U postgres tripp_quota
+          psql -h localhost -U postgres -d tripp_quota -c 'DROP ROLE IF EXISTS authenticated, anon;'
         env:
           PGPASSWORD: test
       - name: Verify quota isolation and privileges
