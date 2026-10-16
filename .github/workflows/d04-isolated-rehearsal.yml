@@ -1,0 +1,38 @@
+name: D04 Isolated Staging Rehearsal
+on:
+  push:
+    branches: [d04-c-document-backend-mvp]
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/d04-isolated-rehearsal.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  baseline-repair-push-rollback:
+    name: Local baseline, ledger repair, migration push, rollback and reapply
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v3.0.1
+        with:
+          version: 2.120.0
+      - name: Install PostgreSQL client if absent
+        run: command -v psql || (sudo apt-get update -q && sudo apt-get install -y -q postgresql-client)
+      - name: Start disposable empty local Supabase database
+        shell: bash
+        run: |
+          set -euo pipefail
+          mv supabase/migrations /tmp/tripp-d04-migrations
+          mkdir supabase/migrations
+          supabase start --exclude studio,imgproxy,logflare,vector,supavisor,edge-runtime
+          rmdir supabase/migrations
+          mv /tmp/tripp-d04-migrations supabase/migrations
+      - name: Exercise existing fail-closed staging rehearsal
+        run: bash supabase/ci/d04c_staging_rehearsal.sh
+      - name: Verify static migration ordering gate
+        run: python3 supabase/ci/d04_ledger_order_check.py
+      - name: Shut down disposable database
+        if: always()
+        run: supabase stop --no-backup
