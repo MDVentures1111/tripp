@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.86.0";
 import { isAuthorizedForDeal } from "./access.ts";
+import { runGate } from "./gate.ts";
 const headers = { "Access-Control-Allow-Origin": Deno.env.get("TRIPP_APP_ORIGIN") ?? "https://tripp-phi.vercel.app", "Access-Control-Allow-Headers": "authorization, apikey, content-type", "Access-Control-Allow-Methods": "POST, OPTIONS", "Content-Type": "application/json", "Vary": "Origin" };
 const respond = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers });
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -25,7 +26,7 @@ Deno.serve(async (req) => {
   if (dealError) return respond(500, { error: "Unable to load deal" });
   if (!deal) return respond(404, { error: "Deal not found" });
   const { data: membership, error: membershipError } = await db.from("organization_memberships").select("organization_id").eq("organization_id", deal.organization_id).eq("user_id", identity.user.id).maybeSingle();
-  if (membershipError || !isAuthorizedForDeal(deal.organization_id, membership ? [membership.organization_id] : [])) return respond(403, { error: "Organization access denied" });
+  if (membershipError || await runGate([async () => isAuthorizedForDeal(deal.organization_id, membership ? [membership.organization_id] : [])]) !== -1) return respond(403, { error: "Organization access denied" });
   const { data: quotaAllowed, error: quotaError } = await db.rpc("consume_deal_ai_quota");
   if (quotaError) return respond(503, { error: "AI usage control unavailable" });
   if (quotaAllowed !== true) return respond(429, { error: "Daily AI analysis limit reached" });
