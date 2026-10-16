@@ -30,7 +30,7 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno check supabase/functions/deal-intelligence/index.ts
-      - run: deno test supabase/functions/deal-intelligence/access_test.ts supabase/functions/deal-intelligence/gate_test.ts supabase/functions/deal-intelligence/request-gate_test.ts
+      - run: deno test supabase/functions/deal-intelligence/access_test.ts supabase/functions/deal-intelligence/gate_test.ts supabase/functions/deal-intelligence/request-gate_test.ts supabase/functions/deal-intelligence/provider-result_test.ts
       - run: deno check supabase/tests/live_tenant_api_test.ts
   quota:
     runs-on: ubuntu-latest
